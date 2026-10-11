@@ -1,0 +1,14 @@
+[package]
+name = "kv-core"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "The KV store as pure state machines: node, client, wire protocol and log format. No I/O."
+
+[dependencies]
+
+[dev-dependencies]
+determinism = { path = "../determinism" }
+
+[lints]
+workspace = true

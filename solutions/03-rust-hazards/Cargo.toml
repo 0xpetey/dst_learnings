@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+publish = false
+
+# A simulator must not have two behaviours. Overflow checks and debug
+# assertions stay on in every profile, so a seed that fails in CI fails the
+# same way on a laptop and a release build cannot hide an overflow.
+[profile.dev]
+overflow-checks = true
+debug-assertions = true
+# A panic in a simulated replica is a found bug. Unwinding would leave half a
+# cluster in an unknown state and let a `Drop` somewhere hide the evidence.
+# (Cargo ignores this for the test profile, so `#[should_panic]` still works.)
+panic = "abort"
+
+[profile.release]
+overflow-checks = true
+debug-assertions = true
+debug = "line-tables-only"
+panic = "abort"
+
+[workspace.lints.clippy]
+disallowed_methods = "deny"
+disallowed_types = "deny"

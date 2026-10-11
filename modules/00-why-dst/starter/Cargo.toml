@@ -1,0 +1,14 @@
+[package]
+name = "lost_update"
+version = "0.1.0"
+edition = "2021"
+
+# No dependencies. Everything comes from std.
+[dependencies]
+
+# Keep overflow checks and debug assertions on in release so a wrapped
+# counter or a broken invariant is reported, not hidden. The course keeps
+# this setting for every later module.
+[profile.release]
+overflow-checks = true
+debug-assertions = true

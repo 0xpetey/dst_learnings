@@ -1,0 +1,19 @@
+[package]
+name = "hazards"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "Module 3 hazard hunt: each idiomatic Rust hazard next to its deterministic fix, proven by the determinism check."
+
+[dependencies]
+determinism = { path = "../determinism" }
+# Used *as hazards*: the point is to show what they do to a trace.
+rand = "0.10"
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+
+[[bin]]
+name = "pointer_order"
+path = "src/bin/pointer_order.rs"
+
+[lints]
+workspace = true
