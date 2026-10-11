@@ -1,0 +1,19 @@
+[package]
+name = "kv-env"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "Real (TCP, files, system clock) and simulated (in-memory, virtual time) environments for kv-core, plus the `kv` binary."
+
+[dependencies]
+# The simulator is the one place where fault points are compiled in.
+kv-core = { path = "../kv-core", features = ["buggify"] }
+determinism = { path = "../determinism" }
+sim = { path = "../sim" }
+
+[[bin]]
+name = "kv"
+path = "src/bin/kv.rs"
+
+[lints]
+workspace = true

@@ -449,13 +449,15 @@ returns it.
 
 #### Objectives
 
-- Process-level faults: crash, restart, pause (long GC / VM stall), clock
-  skew and jumps, slow nodes.
+- Process-level faults: pause (long GC / VM stall), clock skew, drift and
+  forward jumps, and a slow disk on one host. Crash and restart came with
+  Module 6.
 - FoundationDB's `BUGGIFY`: in-code fault points that fire with some
-  probability only in simulation, and how to keep them from rotting. In Rust
-  this is a macro that compiles to nothing outside the simulator feature.
-- Swarm testing: each seed chooses a random *subset* of faults and
-  probabilities, so no single configuration dominates.
+  probability only in simulation, enabled per site per run. In Rust this is
+  a macro that expands to a method call. Outside the simulator feature the
+  method is a constant `false` and the branch compiles to nothing.
+- Swarm testing: each seed chooses a random *subset* of fault families and
+  their probabilities, so no single configuration dominates.
 - Fault scheduling in phases: chaos, then a quiet period where the system must
   recover (the liveness check).
 
@@ -463,15 +465,24 @@ returns it.
 
 - Alex Miller, "BUGGIFY" (transactional.blog).
 - Groce et al., "Swarm Testing" (ISSTA '12).
-- TigerBeetle VOPR options and how they derive from the seed.
+- Martin Kleppmann, "How to do distributed locking", for process pauses and
+  clock jumps.
+- TigerBeetle source: `src/vopr.zig` (`options_swarm`, the pause
+  probabilities, `transition_to_liveness_mode`). FoundationDB source:
+  `flow/include/flow/Buggify.h` for the two probabilities.
+- Optional: Kyle Kingsbury, "The trouble with timestamps". TigerBeetle
+  `src/stdx/time.zig` (`TimeSim`, which skews only the wall clock) and
+  `src/testing/cluster.zig` (`ReplicaHealth` with its `paused` flag).
 
 #### Coding task (sketch)
 
-Add process crash/restart/pause and clock skew to the simulator. Implement a
-`buggify!` macro and sprinkle fault points through the KV store. For example,
-drop a response, delay an fsync, or pretend a buffer is full. Implement
-swarm-style option generation so that each seed produces a distinct fault
-configuration. Log the configuration at the top of every run.
+Add process pauses and per-host clocks with skew, drift and forward jumps to
+the simulator. Implement a `buggify!` macro and put fault points through the
+KV store and the heartbeat: drop a request, drop a reply, duplicate a reply,
+skip a beat. Implement swarm-style option generation so that each seed
+produces a distinct fault configuration. Add one call that turns every fault
+off and starts the quiet period. Log the configuration at the top of every
+run.
 
 ### Module 8: Workloads and checking (the oracle problem)
 
