@@ -105,6 +105,9 @@ Resolve each decision before or during the module that needs it. Record the deci
 - Panic strategy (Module 3). DECIDED: `panic = "abort"` in the dev and release profiles. If the Module 11 shrinker wants to catch panics in-process instead of spawning child processes, revisit.
 - Heartbeat placement (Module 5). DECIDED for now: `kv_core::heartbeat::Heartbeat` is a state machine of its own, driven by the world next to each host's `Driver`. The `Network` trait does not carry peer messages yet. Module 9 folds the liveness view into the replica and extends the trait, which also means the real `TcpNetwork` learns to dial peers. Revisit then.
 - Network queue (Module 5). DECIDED: the network holds no queue. `Net::send` returns delivery instants and the world schedules them. Partitions are checked at send and at delivery. If Module 7 wants `turmoil`-style `hold`/`release`, the model needs a queue, or a delay fixed at hold time. Revisit then.
+- Tail ambiguity and the superblock (Module 6). DECIDED for now: the node has no record of how long its log is beyond the log itself. A tail that reads back wrong is a torn tail, which silently loses a lost, rotten or misread last record. The chaos oracle treats such a write as "fate unknown". Module 10 resolves it with replicas and a fault atlas. A superblock is a stretch goal. If Module 10's repair needs a local high-water mark, add the superblock then.
+- Crash tearing (Module 6). DECIDED: in-flight writes land in order at a crash, and everything after the first torn write is lost. That matches the real environment's one `fsync` per append. It is what makes "a valid record after a bad one" mean "an acknowledged write is gone". TigerBeetle tears each in-flight write independently and needs its redundant headers to cope. If Module 10's journal gets a header ring, revisit.
+- Client ids as sessions (Module 6). DECIDED: records carry the client id and request id, recovery rebuilds sessions, and a client id therefore names a durable session. A new client process takes a new id. Sessions never expire. If Module 8's workloads create many clients, add session expiry.
 - HashMap policy (Module 3). DECIDED: `clippy.toml` bans the `std` types outright, because the lint cannot see the hasher of a defaulted `HashMap<K, V>`. `BTreeMap` is the default. If ordered maps are too slow, a `hashbrown` + `FxBuildHasher` wrapper is the escape hatch.
 
 ## Notes from writing Part I
@@ -127,6 +130,16 @@ Resolve each decision before or during the module that needs it. Record the deci
 - The acceptance tests for Module 5 live in three sub-directories, `tests/sim/`, `tests/kv-core/` and `tests/kv-env/`. `scripts/check.sh` did not change.
 - A first version of the false-suspicion test used a 100 ms reordering delay and saw no stragglers at all. A beat delayed by 100 ms cannot overtake one sent 100 ms later. The test now uses 200 ms, and the lesson shows the arithmetic. This is the kind of thing the model's counters are for.
 
+## Notes from writing Module 6
+
+- Two bugs in the store surfaced the moment a node restarted under a crash schedule. Sessions lived in memory, so a retry across a restart was applied twice. The fix puts the client id and request id in every log record. That made client ids durable sessions, which broke every test that rebuilt a world over an old disk with client 1 again. Both are in the lesson as found bugs.
+- The syllabus reading "`StorageFaultAtlas` and simulated storage" needed a path. `ClusterFaultAtlas` is defined in `src/testing/storage.zig`, and `src/testing/cluster.zig` re-exports it as `StorageFaultAtlas`. `CURRICULUM.md` now says so and adds Dan Luu, Bairavasundaram, Rebello and FoundationDB's `AsyncFileNonDurable`. The FoundationDB file moved to `fdbrpc/include/fdbrpc/AsyncFileNonDurable.h`. The Bairavasundaram paper's modern USENIX page is a 404. The legacy HTML page works.
+- The chaos oracle went through three versions. The first compared node state to a model and failed on writes the client gave up on. The second allowed one unknown write and failed on seed 14. There, a transient read fault at the tail made an acknowledged write vanish at one restart and come back at the next. The third keeps the client's issued writes with a certainty flag and matches them against `Node::recovered_records`, which was added for it. The seed 14 anomaly is in the lesson as the reason for a superblock.
+- The disk fault rates in `DiskConfig::random` are per mille. Per cent rates ended every run in its first second.
+- The torn-tail test from Module 2 cut a record at half its length. Half of a one-sector record is padding, and a record that lost only padding is whole. The test now cuts inside the payload.
+- All three fingerprints changed on purpose: the log read at start is a disk event, records are whole sectors, and completions carry fates.
+- The acceptance tests for Module 6 live in `tests/sim/disk.rs`, `tests/kv-core/log.rs` and four files under `tests/kv-env/`. The log tests moved out of `log.rs` into an integration test so the module can ship them. `scripts/check.sh` did not change.
+
 ## Definition of done
 
 - All fourteen lessons follow the template, and every link works.
@@ -144,7 +157,7 @@ Resolve each decision before or during the module that needs it. Record the deci
 | 03 Rust hazards | draft | draft | done | `solutions/03-rust-hazards`. Decided: ban `HashMap` type, `panic = "abort"`, `#[expect]` markers. `scripts/check.sh` is the full suite. |
 | 04 Virtual time | draft | draft | done | `solutions/04-virtual-time`. New crate `sim` (scheduler, clock, timer). Decided: event queue, not ticks. Fingerprint changed to `0xd982_fd72_6e9e_453a`. Two simulated years in 0.4 s release, 2 s debug. |
 | 05 Sim network | draft | draft | done | `solutions/05-sim-network`. `sim::net` (fate decisions, ledger, cut links, shapes) and `kv_core::heartbeat`. World has N hosts and one address space. Decided: no queue in the network, cuts checked at send and delivery, reordering is a delay. Fingerprints `0x2fcf_d1bb_e1bb_c8ef` and `0x5dae_82b3_b044_4863`. |
-| 06 Sim disk | not started | not started | not started | |
+| 06 Sim disk | draft | draft | done | `solutions/06-sim-disk`. New `sim::disk` with five faults and a crash. New `kv_core::log` with whole sectors, CRC-32C and sequence numbers. `Output::Halt` on damage. A host is a disk plus an optional process, with a crash schedule. Decided: in-order landing at a crash, no superblock yet, client ids are durable sessions. Fingerprints `0x0965_0d64_15e6_a7b3`, `0x0bee_545c_7d3c_dcd4` and `0x3dec_d7ad_dae6_8e98`. |
 | 07 Fault injection | not started | not started | not started | |
 | 08 Workloads & checking | not started | not started | not started | |
 | 09 VOPR | not started | not started | not started | |

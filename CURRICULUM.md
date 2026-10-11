@@ -423,16 +423,23 @@ sure with assertions that:
 - Alagappan et al., "Protocol-Aware Recovery for Consensus-Based Storage"
   (FAST '18). This paper drives TigerBeetle's storage fault model.
 - Pillai et al., "All File Systems Are Not Created Equal" (OSDI '14) on
-  crash-consistency bugs.
-- TigerBeetle VOPR source: `StorageFaultAtlas` and simulated storage.
+  crash-consistency bugs. Dan Luu's "Files are hard" is the short tour.
+- TigerBeetle source: `src/testing/storage.zig` (the simulated storage and
+  `ClusterFaultAtlas`, which `cluster.zig` imports as `StorageFaultAtlas`)
+  and the recovery decision table in `src/vsr/journal.zig`.
+- Optional: Bairavasundaram et al. (FAST '08) for the corruption rates,
+  Rebello et al. (ATC '20) for failed `fsync`, and FoundationDB's
+  `AsyncFileNonDurable` for a crash-only storage model.
 
 #### Coding task (sketch)
 
 Implement an in-memory simulated disk with sector-level faults driven by the
-seed. Give the KV store a checksummed write-ahead log and a recovery
-procedure. Simulate crash/restart at random points. Assert that acknowledged
-writes survive. Assert that the store always detects corruption and never
-silently returns it.
+seed. Give the KV store a sector-aligned, checksummed write-ahead log. Give
+it a recovery procedure that tells a torn tail from a hole and halts on the
+hole. Simulate crash/restart at random points. Assert that acknowledged writes
+survive on a disk that cannot lose them, and count the ones a lying disk
+loses. Assert that the store always detects corruption and never silently
+returns it.
 
 ---
 
