@@ -103,6 +103,8 @@ Resolve each decision before or during the module that needs it. Record the deci
 - Linearizability checker depth (Module 8). A small brute-force checker for tiny histories, or a port of Porcupine's algorithm. Start with brute force. If the Module 10 histories are too long, revisit.
 - Where solutions live. A separate directory (the current plan) or a git branch per module. The directory is simpler for a learner without git. If the repository becomes a git repository, revisit.
 - Panic strategy (Module 3). DECIDED: `panic = "abort"` in the dev and release profiles. If the Module 11 shrinker wants to catch panics in-process instead of spawning child processes, revisit.
+- Heartbeat placement (Module 5). DECIDED for now: `kv_core::heartbeat::Heartbeat` is a state machine of its own, driven by the world next to each host's `Driver`. The `Network` trait does not carry peer messages yet. Module 9 folds the liveness view into the replica and extends the trait, which also means the real `TcpNetwork` learns to dial peers. Revisit then.
+- Network queue (Module 5). DECIDED: the network holds no queue. `Net::send` returns delivery instants and the world schedules them. Partitions are checked at send and at delivery. If Module 7 wants `turmoil`-style `hold`/`release`, the model needs a queue, or a delay fixed at hold time. Revisit then.
 - HashMap policy (Module 3). DECIDED: `clippy.toml` bans the `std` types outright, because the lint cannot see the hasher of a defaulted `HashMap<K, V>`. `BTreeMap` is the default. If ordered maps are too slow, a `hashbrown` + `FxBuildHasher` wrapper is the escape hatch.
 
 ## Notes from writing Part I
@@ -114,6 +116,16 @@ Resolve each decision before or during the module that needs it. Record the deci
 - Module 4 changed the fingerprint on purpose. Every trace line now carries the scheduler's timestamp, and the workload draws jitter from the seed. The acceptance tests for Module 4 live in two sub-directories, `tests/sim/` and `tests/kv-env/`, because they belong to two crates.
 - The one-year test does not assert on wall-clock time. A CI machine under load makes that flaky. It prints the speed and the lesson states the expected range.
 - The line "thousands of cluster-years per day on commodity hardware" in Module 0 was too strong. TigerBeetle's own figure is about 700-1000x real time per core, which is about two simulated years per core-day. The thousands come from a fleet. `CURRICULUM.md` now says so.
+
+## Notes from writing Module 5
+
+- The `sim` crate now depends on `determinism` with `default-features = false`, because the network model needs `Prng`. The Module 4 lesson's "sim and kv-core, nothing else" was true for Module 4 and the Module 5 lesson records the change. The bare-metal check still passes.
+- The syllabus reading "FoundationDB simulation network documentation" did not survive. The testing page has one sentence on the network. `fdbrpc/sim2.cpp` (`Sim2Conn`, `SimClogging`, `halfLatency`) is the real source, and it is a connection-level model with no reordering. `CURRICULUM.md` now points there and adds Kingsbury and Bailis, "The network is reliable". TigerBeetle's network wrapper is `src/testing/cluster/network.zig`, not in `vopr.zig`.
+- The world is multi-host from Module 5 on. The Module 4 tests were ported: `w.driver` is `w.hosts[0].driver`, `add_client` takes a target node, `partitioned` is `net.cut`, and `drop_replies` is `net.drop_next`. Both fingerprints changed on purpose. The trace lines carry host ids and message ids, and the workload runs under `NetConfig::random`.
+- `run_until_idle` no longer means "queue empty". Heartbeats never stop, so idle means no client traffic in flight and no append pending. A test that asserts on `scheduler.is_empty()` only works in a one-host world.
+- The heartbeat is a separate state machine per host. Folding it into `Node` means extending the `Network` trait with peer sends, which also means teaching the real `TcpNetwork` to dial peers. When the node becomes a replica in Module 9, that changes. Recorded as an open decision below.
+- The acceptance tests for Module 5 live in three sub-directories, `tests/sim/`, `tests/kv-core/` and `tests/kv-env/`. `scripts/check.sh` did not change.
+- A first version of the false-suspicion test used a 100 ms reordering delay and saw no stragglers at all. A beat delayed by 100 ms cannot overtake one sent 100 ms later. The test now uses 200 ms, and the lesson shows the arithmetic. This is the kind of thing the model's counters are for.
 
 ## Definition of done
 
@@ -131,7 +143,7 @@ Resolve each decision before or during the module that needs it. Record the deci
 | 02 Architecture | draft | draft | done | `solutions/02-architecture`. Decided: hand-rolled event loop, own `Instant` type, generics over `dyn`. |
 | 03 Rust hazards | draft | draft | done | `solutions/03-rust-hazards`. Decided: ban `HashMap` type, `panic = "abort"`, `#[expect]` markers. `scripts/check.sh` is the full suite. |
 | 04 Virtual time | draft | draft | done | `solutions/04-virtual-time`. New crate `sim` (scheduler, clock, timer). Decided: event queue, not ticks. Fingerprint changed to `0xd982_fd72_6e9e_453a`. Two simulated years in 0.4 s release, 2 s debug. |
-| 05 Sim network | not started | not started | not started | |
+| 05 Sim network | draft | draft | done | `solutions/05-sim-network`. `sim::net` (fate decisions, ledger, cut links, shapes) and `kv_core::heartbeat`. World has N hosts and one address space. Decided: no queue in the network, cuts checked at send and delivery, reordering is a delay. Fingerprints `0x2fcf_d1bb_e1bb_c8ef` and `0x5dae_82b3_b044_4863`. |
 | 06 Sim disk | not started | not started | not started | |
 | 07 Fault injection | not started | not started | not started | |
 | 08 Workloads & checking | not started | not started | not started | |

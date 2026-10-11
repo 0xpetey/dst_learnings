@@ -381,19 +381,25 @@ second in a release build. Its trace must show every timer firing in a determini
 
 #### Key readings
 
-- TigerBeetle VOPR source: `PacketSimulator` / network simulator and its
-  options.
-- FoundationDB simulation network documentation.
+- Kyle Kingsbury and Peter Bailis, "The network is reliable", for the
+  catalogue of real partitions.
+- TigerBeetle source: `src/testing/packet_simulator.zig` (`PacketSimulator`
+  and its options) and `src/testing/cluster/network.zig` (how replicas and
+  clients get addresses).
+- FoundationDB `fdbrpc/sim2.cpp`: `Sim2Conn` and `SimClogging`, a
+  connection-level model for contrast. The FoundationDB testing docs have
+  only one paragraph on the network.
 - `turmoil`'s network model and its `partition`/`hold`/`repair` API, as a
   Rust reference design.
-- Kyle Kingsbury's Jepsen partition "nemesis" writeups, for the catalogue of
-  partition shapes worth simulating.
+- Jepsen's `nemesis.clj`, for the catalogue of partition shapes worth
+  simulating, and the `tc-netem` manual for how a kernel reorders packets.
 
 #### Coding task (sketch)
 
 Implement the simulated network with every fault from the model above. The
-seed configures the faults. Run three KV nodes that pass heartbeats. Make sure
-with assertions that:
+seed configures the faults, including random partitions over time. Run three
+KV nodes that pass heartbeats and keep a liveness view of each other. Make
+sure with assertions that:
 
 - The network never delivers a message that no node sent.
 - Partitioned nodes never exchange messages.
