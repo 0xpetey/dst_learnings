@@ -48,7 +48,7 @@ Every module's coding task extends the same Cargo workspace:
 |---|---|
 | Modules 1-3 | A single-node KV store written as a pure state machine with pluggable I/O. It lives in a core crate that *cannot* reach the OS, and lints enforce this |
 | Modules 4-6 | A simulator with virtual time, simulated network, and simulated disk |
-| Modules 7-8 | Fault injection and a workload generator + checker |
+| Modules 7-8 | Fault injection, a workload generator, and a checker (model, linearizability, state) |
 | Module 9 | A VOPR for a primary-backup replicated KV store |
 | Module 10 | A consensus protocol (Raft or Viewstamped Replication) under the VOPR |
 | Modules 11-12 | Shrinking, trace tooling, and continuous seed runs in CI |
@@ -489,29 +489,47 @@ run.
 #### Objectives
 
 - Generating realistic random workloads from the seed: mixes of operations,
-  hot keys, concurrent clients, retries after timeout.
+  hot keys, unique values, concurrent clients with think time, retries after
+  timeout.
 - The oracle problem: how do you know the result was *wrong*?
-- Three families of checks. Inline assertions in the system. A reference model
-  (a trivially correct in-memory map) compared against observed results.
+- Three families of checks. Inline assertions in the system. A reference
+  model (a trivially correct in-memory map) compared against observed
+  results, which is a complete check only for a history without overlap.
   History-based consistency checking (linearizability, with Porcupine and
-  Knossos as reference implementations).
+  Knossos as reference implementations), with a search that caches
+  configurations and partitions by key. Plus a fourth, the white-box state
+  check that replays the log and compares it with the node's map.
+- Pending operations: a client that gave up has an operation of unknown
+  fate. It took effect or it did not, and the checker must allow both.
 - Safety versus liveness: the cluster must never return a wrong answer, and
   must eventually make progress once faults stop.
 
 #### Key readings
 
-- Kyle Kingsbury, Jepsen consistency model overview.
-- Herlihy & Wing on linearizability (read for the definition, not the proofs).
-- Porcupine (Go) README and its history format.
-- TigerBeetle VOPR source: `StateChecker` and the workload/auditor.
+- Herlihy & Wing, "Linearizability: A Correctness Condition for Concurrent
+  Objects" (read for the definition and the locality theorem, not the
+  proofs). Jepsen's one-page "Linearizability" entry.
+- Anish Athalye, "Testing Distributed Systems for Linearizability", and the
+  Porcupine README plus `checker.go`.
+- Gavin Lowe, "Testing for Linearizability", for the definition that
+  handles pending operations and the cache that makes the search feasible.
+- TigerBeetle source: `src/testing/cluster/state_checker.zig` (the state
+  checker) and `src/state_machine/auditor.zig` (the set of allowed results
+  per request in flight).
+- Optional: Horn & Kroening on P-compositionality. The Knossos README for
+  the `:info` operation. Kyle Kingsbury, "Strong consistency models".
+  TigerBeetle `src/state_machine/workload.zig`.
 
 #### Coding task (sketch)
 
-Write a seed-driven workload generator with multiple simulated clients. Build
-a reference-model checker for the single-node KV store and a simple
-linearizability checker for small histories. Plant three bugs in the KV store:
-a lost update, a stale read after restart, and a duplicate apply on retry.
-Make sure that the checker finds each one.
+Write a seed-driven workload generator with multiple simulated clients, in a
+new `no_std` crate `checker`. Record a history of every call and return.
+Build a reference-model checker for sequential histories and a
+linearizability checker for small histories, partitioned by key, under a
+budget. Add a white-box check that replays the log. Plant three bugs in the
+KV store behind a cargo feature: a lost update, a stale read after restart,
+and a duplicate apply on retry. Make sure that the checker finds each one,
+and show which workload each one hides from.
 
 ### Module 9: Assembling the VOPR
 
