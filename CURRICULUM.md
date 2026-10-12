@@ -660,25 +660,43 @@ instant. Use all three on the planted bug.
 
 #### Objectives
 
-- Running the simulator continuously: nightly swarms, per-commit seed batches,
-  and a fleet of long-running fuzzers.
-- Reporting: failing seeds as artifacts, flake-free by construction.
-- Deterministic builds and why reproduction requires the same binary: pinned
-  toolchain, committed lockfile, and a fixed profile.
-- Performance budgets for the simulator itself so it stays fast enough to be
-  useful.
+- Running the simulator continuously: a batch of seeds on every push, a
+  nightly sweep under a time budget, and what a fleet of long-running
+  fuzzers adds to that.
+- Reporting: a failing seed as an artifact, with its record, its trace and
+  a shrunk run. Every failure is rerun twice and compared, and nothing is
+  retried into a pass.
+- Deterministic builds and why reproduction requires the same binary: a
+  pinned toolchain, a committed lockfile and `--locked`, and one profile
+  for debug and release. The trace agrees across two operating systems
+  and two CPU architectures, and CI checks that it does.
+- Performance budgets for the simulator itself, in the seed's units:
+  scheduler events per request and checker steps, with wall-clock time
+  reported and never asserted.
 
 #### Key readings
 
-- TigerBeetle's CI and `vopr` fuzzing setup (`.github/workflows`, DevHub).
-- FoundationDB's "correctness" test runner documentation.
+- TigerBeetle's continuous fuzzing orchestrator, `src/scripts/cfo.zig`, at
+  the last commit before it left the tree in August 2026. The devhub it
+  fed is behind a login now.
+- TigerBeetle, "A Tale of Four Fuzzers" (2025): a fixed seed for the smoke
+  run, random seeds drawn outside the process, and short CI runs that add
+  up over time.
+- FoundationDB's correctness service, Joshua, and TestHarness2: ensembles,
+  agents, exit codes, and the determinism check on five per cent of runs.
+- The Cargo Book on `Cargo.lock` and `--locked`, and the rustup book on
+  `rust-toolchain.toml`.
 
 #### Coding task (sketch)
 
-Add a CI job that runs a batch of seeds on every push. Add a scheduled job
-that runs continuously, collects failing seeds, and makes sure that each one
-reproduces. Add the Module 1 determinism check to CI so that it runs each
-failing seed twice and compares the trace hashes.
+Add `vopr --batch`. Its seeds derive from the commit hash, and it runs
+them in child processes several at a time. Every failure is rerun twice
+with its trace and compared, shrunk on request, and written out as a
+record and a trace file. Every pass is checked against a cost ceiling.
+Add three workflows. The acceptance suite runs on every push. A batch
+runs on every push on two operating systems, and the sweep hashes are
+compared. A nightly sweep runs under a time budget, and its report is
+the artifact.
 
 ### Module 13: The wider landscape and the limits of DST
 

@@ -1,0 +1,31 @@
+# The fleet of one. Every night, as many seeds as fifty minutes allow,
+# starting where no batch has started before, each failure verified twice
+# and shrunk. The report is the artifact, kept for ninety days.
+name: nightly
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p vopr
+      # The run number times a million: no two nights overlap, and the
+      # seeds of any night follow from its number.
+      - run: >
+          target/release/vopr --batch 1000000
+          --from $(( ${{ github.run_number }} * 1000000 ))
+          --commit ${{ github.sha }}
+          --for 50m --jobs 4 --shrink --report report
+          | tail -40
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ github.run_number }}
+          path: report
+          retention-days: 90
