@@ -7,14 +7,14 @@ A self-paced course. You build a small replicated key-value store and the simula
 1. Read [`CURRICULUM.md`](CURRICULUM.md) for the syllabus and the shape of the whole course.
 2. Install Rust with `rustup`. The project pins its toolchain in `project/rust-toolchain.toml`, so the right version installs itself on the first build. Module 3 also needs one extra target. Install it with `rustup target add thumbv7em-none-eabihf`.
 3. Work through `modules/` in order. Each module directory has a `README.md` with the lesson, the readings, and a coding task with acceptance tests.
-4. Your code lives in `project/`. It starts as a skeleton for Module 1 and grows by about one crate per module.
+4. Your code lives in `project/`. It starts as a skeleton for Module 1 and grows to eight crates by the end.
 
 ## Layout
 
 ```text
 CURRICULUM.md        the syllabus
 plan.md              the work plan for writing the course itself
-modules/NN-slug/     one lesson per module, plus the acceptance tests for its task
+modules/NN-slug/     one lesson per module, plus the acceptance tests and scripts for its task
 project/             your workspace, skeleton for Module 1
 solutions/NN-slug/   a reference solution per module; each is the starting point for the next
 ```

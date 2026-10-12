@@ -99,7 +99,10 @@ fn thread_interleaving_is_caught() {
 /// in whatever order the OS runs them and reporting through a channel.
 #[test]
 fn completion_order_is_caught() {
-    let err = check_determinism(1, 4, |_prng, t| {
+    // Eight runs, not two: under load the scheduler can hand two runs the
+    // same order, and a hazard test that fails one time in forty is a
+    // hazard of its own.
+    let err = check_determinism(1, 8, |_prng, t| {
         let (tx, rx) = std::sync::mpsc::channel::<u8>();
         let barrier = Arc::new(Barrier::new(8));
         for id in 0..8u8 {
@@ -129,7 +132,7 @@ fn completion_order_is_caught() {
 #[test]
 fn os_random_is_caught() {
     let err = run_twice(1, |_prng, t| {
-        let jitter: u64 = rand::random::<u64>() % 1000;
+        let jitter: u64 = rand::random::<u64>();
         trace!(t, "backoff jitter {jitter}ms");
     })
     .unwrap_err();

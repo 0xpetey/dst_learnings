@@ -265,9 +265,11 @@ fn chaos(prng: &mut Prng, trace: &mut determinism::Trace) {
     w.check_logs()
         .unwrap_or_else(|(a, b)| panic!("logs of n{a} and n{b} diverged"));
     let primary = w.primary().expect("converged");
-    let can_lose =
-        !disk.lost_write.is_never() || !disk.corrupt_write.is_never() || !disk.corrupt_read.is_never();
-    if !can_lose {
+    let can_damage = !disk.lost_write.is_never()
+        || !disk.corrupt_write.is_never()
+        || !disk.corrupt_read.is_never()
+        || !disk.misdirect_write.is_never();
+    if !can_damage {
         assert_eq!(entries(&w, primary), replayed(&w, primary), "node {primary}");
     }
     for line in w.trace().lines() {

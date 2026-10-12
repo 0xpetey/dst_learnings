@@ -133,7 +133,7 @@ The seed also draws five nodes one time in four. Nothing in the protocol is writ
 | 619 | Every read after 28.6 s returned the value before an acknowledged write | Two disks lost the same record: beyond `f` | The fault atlas, and `Missing` counted from every peer |
 | 353 | 1271 views in 950 s, nothing served | `Missing` counted only from whole peers, and no peer became whole again | `Missing` from any peer that read its disk |
 
-Three classes. The protocol's: seeds 7, 22, 24, 36, 525, 562, 563, 5884, and the two found by hand. The guard's: seeds 13 and 19, where the check was wrong and the protocol was right. The model's: seeds 619 and 353, where the simulator dealt faults no protocol tolerates, and where a rule meant to be safe starved the cluster. A journal with only the first class means the checker and the model were never doubted.
+Three classes. The protocol's: seeds 7, 22, 24, 36, 525, 562, 563, 7775, 5884, and the two found by hand. The guard's: seeds 13 and 19, where the check was wrong and the protocol was right. The model's: seeds 619 and 353, where the simulator dealt faults no protocol tolerates, and where a rule meant to be safe starved the cluster. A journal with only the first class means the checker and the model were never doubted.
 
 ### Reading a failing seed
 
@@ -215,7 +215,7 @@ cargo test -p vopr --release -- --nocapture a_lease            # prints the seed
 cargo run --release -p vopr -- --seeds 0..20000 | tail -1      # one trace_hash line, in about four minutes
 ```
 
-Every seed in the journal is in `regression_seeds_still_pass`, under three nodes and no core, because they were found before those draws existed.
+Ten seeds of the journal are in `regression_seeds_still_pass`, under three nodes and no core, because they were found before those draws existed. The other five entries, the two found by hand and seeds 5884, 619 and 353, are not pinned.
 
 ### Hints
 

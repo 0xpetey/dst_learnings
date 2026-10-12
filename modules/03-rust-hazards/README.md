@@ -94,7 +94,7 @@ Panics need a decision too. A replica panic is an assertion failure of the simul
 
 Third-party crates call `Instant::now()` and `rand::random()`, spawn threads, and use `HashMap` freely. `uuid::new_v4`, `fastrand`, `getrandom`, and anything built on `tokio` are all suspects. A dependency that the core crate pulls in is a dependency on the real world.
 
-Audit with three tools. `cargo tree -p kv-core` lists what the core depends on. After this module, the answer is nothing. A `grep` over vendored sources for the banned calls finds the hidden clock in a crate that calls itself pure. `cargo deny` bans crates by name, so a future `cargo add` cannot reintroduce one.
+Audit with three tools. `cargo tree -p kv-core` lists what the core depends on. After this module, the answer is `determinism` as a dev-dependency and nothing else. A `grep` over vendored sources for the banned calls finds the hidden clock in a crate that calls itself pure. `cargo deny` bans crates by name, so a future `cargo add` cannot reintroduce one.
 
 ### Making the hazards unreachable
 
@@ -146,7 +146,7 @@ Optional:
 
 - [loom](https://github.com/tokio-rs/loom) and [shuttle](https://github.com/awslabs/shuttle). These explore schedules for the places where threads are unavoidable. Neither models a clock.
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/). It bans crates by name.
-- [The `#[expect]` attribute](https://doc.rust-lang.org/reference/attributes/diagnostics.html#the-expect-attribute).
+- [The `#[expect]` attribute](https://doc.rust-lang.org/reference/attributes/diagnostics.html#the-expect-attribute) in the Rust reference. When the lint it expects stops firing, it fails the build. That is why the markers in `real.rs` cannot rot.
 - [RisingWave, Deterministic Simulation: A New Era of Distributed System Testing](https://risingwave.com/blog/deterministic-simulation-a-new-era-of-distributed-system-testing/). The authors of `madsim` give its design rationale.
 - [Stevan Andjelkovic, Introduction to simulation testing](https://stevana.github.io/introduction_to_simulation_testing.html). This is a language-neutral framing.
 
@@ -192,7 +192,7 @@ Add a crate `hazards` with `rand` and `tokio` (`rt`, `macros`, `sync`, `time`) a
 ```sh
 rustup target add thumbv7em-none-eabihf     # once
 scripts/check.sh                            # ends with "all checks passed"
-cargo tree -p kv-core                       # kv-core alone, no dependencies
+cargo tree -p kv-core                       # kv-core alone, plus determinism as a dev-dependency
 grep -rn "#\[expect(clippy::disallowed" crates/kv-env   # one line per OS touch point
 ```
 

@@ -50,7 +50,10 @@ where
 #[derive(Debug)]
 pub enum ProcessCheckError {
     Spawn(std::io::Error),
-    Failed { status: std::process::ExitStatus, stderr: String },
+    Failed {
+        status: std::process::ExitStatus,
+        stderr: String,
+    },
     NoHash(String),
     Diverged(Divergence),
 }

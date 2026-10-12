@@ -10,8 +10,8 @@ All coding is in Rust. In some modules, TigerBeetle's Zig source is the best
 reference for an idea. The module says so, but you do not need to write any
 Zig.
 
-This document is the high-level plan. Each module will later get its own
-directory with detailed notes, readings, and a fully specified coding task.
+This document is the syllabus. Each module has its own directory under
+`modules/` with the lesson, the readings, and a fully specified coding task.
 
 ---
 
@@ -34,9 +34,9 @@ introduces what it needs.
    a simulated disk. Each has a realistic fault model.
 5. Design fault injection (FoundationDB-style "buggify", swarm testing) and
    workload generation with model-based and invariant-based checking.
-6. Assemble these into a VOPR-style simulator that runs a cluster for
-   simulated years in seconds. Use it to find, reproduce, shrink, and fix
-   real bugs in a consensus protocol.
+6. Assemble these into a VOPR-style simulator that runs a cluster through
+   thousands of faulty seeds a minute. Use it to find, reproduce, shrink,
+   and fix real bugs in a consensus protocol.
 7. Run the simulator continuously in CI. Know the limits of what DST can
    and cannot find.
 
@@ -50,7 +50,7 @@ Every module's coding task extends the same Cargo workspace:
 | Modules 4-6 | A simulator with virtual time, simulated network, and simulated disk |
 | Modules 7-8 | Fault injection, a workload generator, and a checker (model, linearizability, state) |
 | Module 9 | A VOPR for a primary-backup replicated KV store |
-| Module 10 | A consensus protocol (Raft or Viewstamped Replication) under the VOPR |
+| Module 10 | Viewstamped Replication under the VOPR |
 | Modules 11-12 | Shrinking, trace tooling, and continuous seed runs in CI |
 | Module 13 | A port of the replica onto `turmoil`, the comparison, and a retrospective |
 
@@ -142,16 +142,18 @@ picture for the whole course.
 - The `rand_pcg` or `rand_xoshiro` crate docs. The `rand` book's section on
   reproducibility, and why `StdRng` is *not* a stable algorithm across
   versions.
+- Alex Kladov (matklad), "Random Fuzzy Thoughts" (TigerBeetle, 2023), on
+  what a seed buys and what has to be persisted.
 
 #### Coding task (sketch)
 
-Create the Cargo workspace. Build a seedable PRNG wrapper with a pinned
-algorithm and a trace log. Build a test runner that runs a program under a
+Start from the skeleton workspace in `project/`. Build a seedable PRNG
+wrapper with a pinned algorithm and a trace log. Build a test runner that runs a program under a
 seed and emits a hash of its trace. Write a "determinism check" that runs the
-same seed twice and fails on any divergence. Then deliberately introduce each
-class of nondeterminism from the catalogue. Make sure that the determinism
-check catches each one. Keep this check. It runs in CI for the rest of the
-course.
+same seed twice and fails on any divergence. Then introduce each class of
+nondeterminism from the catalogue. For each one, record which check catches
+it: the in-process check, the cross-process check, or neither.
+Keep the check. It runs in CI for the rest of the course.
 
 ### Module 2: Architecting for simulation
 
@@ -166,9 +168,11 @@ course.
   determinism. Why TigerBeetle avoids threads in the replica.
 - Completion-based I/O (io_uring-style) as a natural fit: submit, then handle
   a completion event later.
-- Rust-specific design choices. Traits with generic parameters versus
-  `dyn Trait` for the environment. Owning the event loop versus adopting an
-  async runtime. A context struct instead of globals.
+- Rust-specific design choices, decided in this module. A hand-rolled
+  single-threaded event loop with explicit state machines. A driver generic
+  over the environment traits rather than `dyn Trait`. The core's own
+  `Instant(u64)`, because a fake clock cannot construct `std::time::Instant`.
+  A context struct instead of globals.
 - Assertions as a first-class design tool. The simulator is only as good as
   the invariants the system asserts about itself.
 
@@ -191,8 +195,12 @@ Write a single-node KV store (`get`, `put`, `delete`, with a simple
 request/response protocol). Write it as a pure state machine parameterized
 over `Time`, `Network`, and `Storage` traits. Provide a real implementation
 (TCP + files + system clock) and a trivial in-memory fake. The same core logic
-must run against both. Add internal assertions for every invariant you can
-state.
+must run against both. Give it a write-ahead log with torn-tail recovery and a
+length-prefixed frame codec with limits. Add sessions that answer a retry
+from memory, a retrying client state machine with backoff and a give-up, and
+an `Observer` trait. Seed a workload and pin its trace hash as the fingerprint
+that every later module keeps. Add internal assertions for every invariant
+you can state.
 
 ### Module 3: How Rust and `std` fight determinism
 
@@ -209,9 +217,10 @@ discipline.
 - `HashMap` and `HashSet` use `RandomState`, which seeds SipHash from OS
   randomness per process. Iteration order differs run to run. Any logic that
   iterates a map is nondeterministic, for example choosing a peer, draining a
-  queue, or formatting a log line that is then hashed. Fixes: `BTreeMap`, or
-  `HashMap` with a fixed `BuildHasher` (`BuildHasherDefault<FxHasher>` or a
-  fixed-key `ahash`), and a lint that bans the default constructors.
+  queue, or formatting a log line that is then hashed. The fix decided here:
+  ban the `std` types outright by lint, because the lint cannot see the
+  hasher of a defaulted `HashMap<K, V>`. `BTreeMap` is the default, and a
+  wrapper with a fixed `BuildHasher` is the escape hatch.
 - `std::time::{Instant, SystemTime}` and `std::thread::sleep` are direct
   syscalls. Any `Instant::now()` in core logic is a hidden dependency on the
   real clock. The only fix is an injected clock and a ban on the originals.
@@ -270,8 +279,9 @@ discipline.
   mutable globals, all state hangs off a per-replica struct, and the simulator
   tells the tracing subscriber which simulated node is "current".
 - Panics: a replica panic must be the simulator's assertion failure, not an
-  unwind that leaves half a cluster in an unknown state. Decide on
-  `panic = "abort"` versus catching at the replica boundary.
+  unwind that leaves half a cluster in an unknown state. Decided:
+  `panic = "abort"` in the dev and release profiles. The tools of Module 11
+  run children, and the tests unwind.
 
 ##### Hazards from dependencies
 
@@ -284,15 +294,16 @@ discipline.
 
 ##### Making the hazards unreachable
 
-- Split the workspace into three crates. The core crate is `#![no_std]` +
-  `alloc`, so `std::time`, `std::thread`, `std::fs`, `std::net`, and
-  `std::env` do not exist. The `env` crate has the real and simulated
-  environments. The third is a `sim` crate.
+- Split the workspace into four crates: `determinism`, `kv-core`, `kv-env`
+  and `hazards`. The core crate is `#![no_std]` + `alloc`, so `std::time`,
+  `std::thread`, `std::fs`, `std::net`, and `std::env` do not exist. The
+  `kv-env` crate has the real and simulated environments. The `hazards`
+  crate holds probes that must fail to compile. Module 4 adds `sim`.
 - Where `no_std` is too strict, use clippy's `disallowed_methods` and
   `disallowed_types` in `clippy.toml` with `#![deny(clippy::disallowed_methods,
   clippy::disallowed_types)]`. Use them to ban `Instant::now`,
-  `SystemTime::now`, `thread::spawn`, `thread_rng`, `HashMap::new`, and
-  friends.
+  `SystemTime::now`, `thread::spawn`, `thread_rng`, the `HashMap` and
+  `HashSet` types, and friends.
 - The Module 1 determinism check in CI is the last line of defense.
 
 #### Key readings
@@ -306,7 +317,8 @@ discipline.
   the cases where threads are unavoidable (neither models a clock).
 - Clippy docs for `disallowed_methods` and `disallowed_types`. `cargo deny`
   docs.
-- The `rand` book's reproducibility chapter.
+- The Rust reference on the `#[expect]` attribute, which fails the build when
+  a lint stops firing.
 - Tyler Neely (sled), the sled simulation guide (sled.rs/simulation.html).
   S2's "Deterministic simulation testing for async Rust" on retrofitting DST
   onto a Tokio codebase.
@@ -346,8 +358,8 @@ crate and make sure that it fails to compile or fails lint.
   is a trap here).
 - The "tick" model that TigerBeetle uses versus a pure event-queue model, and
   the trade-offs.
-- Running simulated decades in seconds, and why this matters for finding
-  rare timing bugs.
+- Running a simulated year in under a second, and why this matters for
+  finding rare timing bugs.
 
 #### Key readings
 
@@ -358,14 +370,17 @@ crate and make sure that it fails to compile or fails lint.
 - FoundationDB `fdbrpc/sim2.cpp` (how it implements `delay()` and the run
   loop) and `flow/TaskQueue.h` (how it breaks ties).
 - `tokio::time::pause` and `tokio::time::advance` docs, as an example of
-  virtual time retrofitted onto a runtime.
+  virtual time retrofitted onto a runtime. `turmoil::Sim::step` for a tick
+  loop over such a runtime.
+- The `std::collections::BinaryHeap` docs, on what the order of equal keys
+  is not.
 
 #### Coding task (sketch)
 
 Implement the virtual clock and event scheduler. Port the KV store's timeouts
 and retries onto it. Write a test that runs a client with an exponential
-backoff retry loop for one simulated year. The test must complete in under a
-second in a release build. Its trace must show every timer firing in a deterministic order.
+backoff retry loop for two simulated years. The test must complete in under
+a second in a release build. Its trace must show every timer firing in a deterministic order.
 
 ### Module 5: The simulated network
 
@@ -409,7 +424,7 @@ sure with assertions that:
 
 #### Objectives
 
-- The storage fault model: torn writes, misdirected reads and writes, latent
+- The storage fault model: torn writes, misdirected writes, latent
   sector errors, bit rot, lost writes from an `fsync` that lies, and crash
   before or after durability.
 - Crash-and-restart: simulate process death and recovery from the persisted
@@ -573,8 +588,9 @@ and the lesson tells them.
 #### Objectives
 
 - Implement a real consensus protocol: Viewstamped Replication, as
-  TigerBeetle runs it, or Raft. The reference solution is VSR with Raft's
-  persisted term.
+  TigerBeetle runs it, with Raft's persisted term as a superblock and Raft's
+  consistency check as a parent checksum. The acceptance tests name the
+  three view-change messages, so the protocol is fixed.
 - The classic bug classes DST finds. A backup that claims a view before it
   holds the view's log. A stale primary serving reads. A vote forgotten at a
   restart. A commit counted from a stale acknowledgement. A repair that
@@ -745,14 +761,13 @@ The numbers. What to do differently.
 ## Capstone
 
 By the end, your repository contains a replicated, consensus-based KV store
-and a VOPR-style simulator. The simulator ran the store for millions of
-simulated hours under network and storage faults. You recorded every
+and a VOPR-style simulator. The simulator ran the store through tens of
+thousands of seeded runs under network and storage faults. Twenty thousand
+seeds pass clean in under two minutes. You recorded every
 discovered bug as a reproducible seed. The retrospective from Module 13 is
 the written deliverable.
 
-## Next steps for building out this curriculum
+## Status
 
-1. Expand Module 0 and Module 1 into full lessons with concrete, graded coding
-   tasks and acceptance criteria.
-2. Continue module by module. Adjust later modules based on how the running
-   project actually shapes up.
+Every module is written, and every reference solution passes its acceptance
+criteria. `plan.md` holds the work plan, the decisions, and the status table.

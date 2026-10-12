@@ -565,32 +565,6 @@ too. Fewer increments make everything rarer. Try the arguments
 
 </details>
 
-### Stretch goals
-
-- Force it. Insert a `thread::sleep` of a few microseconds between the
-  `Get` and the `Put` in `client`. Insert another in `store` before it sends
-  the reply. Watch the shared-key failure rate go to 100%, and watch the
-  stale-reply failure appear in most runs. Then ask whether this made a
-  specific failure reproducible, or only made failure in general certain.
-  The number lost still varies. This is the difference between "flaky on
-  purpose" and "deterministic".
-- Order the world. Replace both `mpsc` channels with a single `Vec<Event>`
-  that you process in a loop that you wrote. Replace `recv_timeout` with a
-  comparison against a `u64` counter that you advance by hand. The race is
-  still in the logic, but now you pick the interleaving. Can you write down
-  an exact sequence of events that loses exactly one update on key 0? This
-  is Module 4 in miniature.
-- Try loom. Port the program to `loom`, a separate crate outside this task's
-  no-dependency rule. Note what loom can model (threads, `std::sync`
-  primitives) and what it cannot. There is no clock, so `recv_timeout` has
-  no meaning. A model checker runs every possible schedule of a small
-  program. The gap shows the split. Model checkers explore scheduling.
-  Simulators explore time and faults.
-- Count the interleavings. Take 2 clients, each doing 1 shared increment.
-  That is 4 requests total, 2 per client, in a fixed order per client. List
-  the possible arrival orders at the store and count how many lose an
-  update. Then do 2 shared increments each. Notice how fast the count grows.
-
 <details>
 <summary>Reference program. Opt in only after you wrote your own.</summary>
 
@@ -846,6 +820,32 @@ fn main() -> ExitCode {
 
 </details>
 
+### Stretch goals
+
+- Force it. Insert a `thread::sleep` of a few microseconds between the
+  `Get` and the `Put` in `client`. Insert another in `store` before it sends
+  the reply. Watch the shared-key failure rate go to 100%, and watch the
+  stale-reply failure appear in most runs. Then ask whether this made a
+  specific failure reproducible, or only made failure in general certain.
+  The number lost still varies. This is the difference between "flaky on
+  purpose" and "deterministic".
+- Order the world. Replace both `mpsc` channels with a single `Vec<Event>`
+  that you process in a loop that you wrote. Replace `recv_timeout` with a
+  comparison against a `u64` counter that you advance by hand. The race is
+  still in the logic, but now you pick the interleaving. Can you write down
+  an exact sequence of events that loses exactly one update on key 0? This
+  is Module 4 in miniature.
+- Try loom. Port the program to `loom`, a separate crate outside this task's
+  no-dependency rule. Note what loom can model (threads, `std::sync`
+  primitives) and what it cannot. There is no clock, so `recv_timeout` has
+  no meaning. A model checker runs every possible schedule of a small
+  program. The gap shows the split. Model checkers explore scheduling.
+  Simulators explore time and faults.
+- Count the interleavings. Take 2 clients, each doing 1 shared increment.
+  That is 4 requests total, 2 per client, in a fixed order per client. List
+  the possible arrival orders at the store and count how many lose an
+  update. Then do 2 shared increments each. Notice how fast the count grows.
+
 ## Check your understanding
 
 1. Your program failed 683 times out of 1000. A colleague says: "So the bug
@@ -875,24 +875,6 @@ fn main() -> ExitCode {
 7. FoundationDB and TigerBeetle rewrote their systems around determinism.
    Antithesis did not require that. What did Antithesis control instead, and
    what does that say about what determinism requires?
-
-## What's next
-
-You now have a program that fails for reasons that you cannot set. You also
-have a list in `NOTES.md` of exactly which reasons those are. They are the
-scheduler, the clock, the order of channel delivery, and the load on the
-machine. Module 1
-turns that list into a catalog. It names every source of nondeterminism that
-a program can have, in general and in Rust specifically. It introduces the
-seed as the single root from which every decision must descend.
-
-Module 1 also has you build the first piece of the course workspace. A PRNG
-is a pseudorandom number generator. A trace log is a record of each step.
-You build a seeded PRNG, a trace log, and a check that runs the same seed
-twice and fails on any divergence. That check runs in CI (the automated
-build on every change) for the rest of the course.
-
----
 
 <details>
 <summary>Answers to "Check your understanding"</summary>
@@ -965,3 +947,16 @@ build on every change) for the rest of the course.
    three pillars.
 
 </details>
+
+## What's next
+
+You now have a program that fails for reasons that you cannot set. You also
+have a list in `NOTES.md` of exactly which reasons those are. They are the
+scheduler, the clock, the order of channel delivery, and the load on the
+machine. Module 1 turns that list into a catalog. It names every source of nondeterminism that
+a program can have, in general and in Rust specifically. It introduces the
+seed as the single root from which every decision must descend. Module 1 also has you build the first piece of the course workspace. A PRNG
+is a pseudorandom number generator. A trace log is a record of each step.
+You build a seeded PRNG, a trace log, and a check that runs the same seed
+twice and fails on any divergence. That check runs in CI (the automated
+build on every change) for the rest of the course.

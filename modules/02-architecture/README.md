@@ -170,7 +170,7 @@ These are not debug aids. They are the specification, written where the compiler
 
 Required:
 
-- [matklad, A Deterministic Walk Down TigerBeetle's main() Street](https://www.p99conf.io/session/a-deterministic-walk-down-tigerbeetles-main-street/) (P99 CONF 2023). The talk puts I/O in a struct, runs a tick loop, and allocates at startup. This is the architecture that this module imitates. The [slides](https://www.slideshare.net/slideshow/a-deterministic-walk-down-tigerbeetle-s-main-street/269858890) are also available.
+- [matklad, A Deterministic Walk Down TigerBeetle's main() Street](https://www.p99conf.io/session/a-deterministic-walk-down-tigerbeetles-main-street/) (P99 CONF 2023). The talk puts I/O in a struct, runs a tick loop, and allocates at startup. This is the architecture that this module imitates.
 - [Brett Cannon, Network protocols, sans I/O](https://sans-io.readthedocs.io/) and the [how-to](https://sans-io.readthedocs.io/how-to-sans-io.html). This is the original statement of the pattern. It is written for Python, but every word applies here.
 - [Thomas Eizinger, sans-IO: The secret to effective Rust for network services](https://www.firezone.dev/blog/sans-io). This is the best Rust-specific case for the pattern. It argues for state machines plus an external event loop, and it states the costs honestly.
 - [`quinn-proto`](https://docs.rs/quinn-proto/latest/quinn_proto/). This production QUIC implementation describes itself as fully deterministic and containing no networking code. Read the crate-level docs.
@@ -209,7 +209,8 @@ Start from your Module 1 workspace, or from `solutions/01-determinism/`. Add two
 ```sh
 cargo test --workspace                 # all green, including the real TCP test
 cargo clippy --workspace --all-targets # no warnings
-grep -rn "std::time\|std::thread\|std::fs\|std::net\|std::env" crates/kv-core/src  # no output
+grep -rn "std::time\|std::thread\|std::fs\|std::net\|std::env" crates/kv-core/src | grep -v "//"
+                                            # no output: comments do not count, code does
 ```
 
 Then, by hand, in two terminals:

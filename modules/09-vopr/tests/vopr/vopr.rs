@@ -172,4 +172,7 @@ fn regression_seeds_still_pass() {
 /// 402: a primary lost record 96 before anyone saw it, the next primary
 /// numbered a new write 96, and a repair put a stray copy of the first
 /// back in its place. Records carry their view since.
-const REGRESSION_SEEDS: [u64; 3] = [36, 4668, 402];
+/// 12784: the checker's own bug. It compared the primary's map with its
+/// disk, and a misdirected write had made a hole the primary had not
+/// restarted to find. The map is compared with the log in memory now.
+const REGRESSION_SEEDS: [u64; 4] = [36, 4668, 402, 12784];

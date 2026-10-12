@@ -244,7 +244,7 @@ Required:
 
 Optional:
 
-- GitHub Docs, ["Events that trigger workflows"](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows), the `schedule` event, and ["Storing and sharing data from a workflow"](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/storing-and-sharing-data-from-a-workflow) for artifacts. [Using a matrix](https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs) for the two machines.
+- GitHub Docs, ["Events that trigger workflows"](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows), the `schedule` event, and ["Storing and sharing data from a workflow"](https://docs.github.com/en/actions/tutorials/store-and-share-data) for artifacts. [Using a matrix](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) for the two machines.
 - [Swatinem/rust-cache](https://github.com/Swatinem/rust-cache). What it caches and what it keys the cache on, which is the lockfile.
 - FoundationDB, ["Simulation and Testing"](https://apple.github.io/foundationdb/testing.html). Tens of thousands of simulations a night, and a trillion CPU-hours so far.
 - TigerBeetle, ["Random Fuzzy Thoughts"](https://tigerbeetle.com/blog/2023-03-28-random-fuzzy-thoughts/) (2023). A seed is enough at a commit. Across commits, persist the generated data.
