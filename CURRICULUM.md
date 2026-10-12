@@ -546,16 +546,23 @@ and show which workload each one hides from.
 
 #### Key readings
 
-- TigerBeetle VOPR source: `simulator.zig` top to bottom.
-- TigerBeetle blog and talks on the bugs the VOPR caught.
+- TigerBeetle VOPR source: `src/vopr.zig`, `main` top to bottom, and the
+  overview in `docs/internals/vopr.md`.
+- matklad, "Simulation Testing For Liveness" (TigerBeetle blog, 2023): the
+  view-change livelock a safety-only run cannot see, and the liveness mode.
+- Ongaro and Ousterhout, Raft, section 5.3 only: the Log Matching Property.
+- Budhiraja, Marzullo, Schneider and Toueg, "Optimal Primary-Backup
+  Protocols" (1992), introduction and section 2.
 
 #### Coding task (sketch)
 
-Turn the KV store into a replicated cluster (primary-backup with a simple
-failover rule). Build the simulator binary. `sim --seed N` runs one complete
-simulation and either passes or prints the seed, configuration, and failing
-assertion. Run a few thousand seeds. You will find bugs. Fix them and keep
-the seeds as regression tests.
+Turn the KV store into a replicated cluster (primary-backup with an explicit
+failover rule and an all-replica commit rule). Build the simulator binary.
+`vopr --seed N` runs one complete simulation and either passes or prints the
+seed, configuration, and failing assertion. Run a few thousand seeds. You
+will find bugs. Fix them and keep the seeds as regression tests. The
+reference solution found three protocol bugs and one checker bug this way,
+and the lesson tells them.
 
 ---
 

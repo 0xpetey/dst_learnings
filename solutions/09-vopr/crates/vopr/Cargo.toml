@@ -1,0 +1,20 @@
+[package]
+name = "vopr"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "The simulator: one seed in, one verdict out. Configures a cluster from the seed, runs the chaos phase, stops the faults, waits for convergence, checks, reports."
+
+[dependencies]
+kv-core = { path = "../kv-core", features = ["buggify", "bugs"] }
+kv-env = { path = "../kv-env" }
+checker = { path = "../checker" }
+determinism = { path = "../determinism" }
+sim = { path = "../sim" }
+
+[[bin]]
+name = "vopr"
+path = "src/main.rs"
+
+[lints]
+workspace = true
