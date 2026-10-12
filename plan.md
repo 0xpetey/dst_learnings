@@ -220,6 +220,17 @@ Resolve each decision before or during the module that needs it. Record the deci
 - The workflows parse as YAML, and every command in them was run locally. They have not run on GitHub, because the course repository is not a GitHub repository. The lesson says to push to a fork.
 - The acceptance test for Module 12 is `tests/vopr/batch.rs`. `scripts/check.sh` gained `--locked`, a debug-against-release hash comparison, and a batch of the first two hundred seeds. The workflows ship in `modules/12-ci/workflows/`. No fingerprint changed, because the `cost:` line is in the report and not in the trace.
 
+## Notes from writing Module 13
+
+- The port is a new crate, `kv-turmoil`, and `kv-core` did not change. Three trait implementations and a wire format for `replica::Message`. A host loop, a client loop, a fault schedule applied between `sim.step()` calls, and `run`. About 1 400 lines with the tests. turmoil 0.7.2 and tokio 1.53.2 entered the lockfile.
+- turmoil seeds tokio's own random number generator only under `--cfg tokio_unstable`, so a `select!` in host code is nondeterministic without the flag. The host loop uses `timeout` instead. Seed 2 agrees with itself in one process and across two.
+- The first `SharedStorage` copied `FileStorage` and cut the file after every write. The superblock is at offset zero, so every promise erased the log, and seeds 34 and 42 lost records to a bounce. `FileStorage` had the same bug since Module 10 and nothing ran it: the fake disk writes in place and the real server is a cluster of one. `real.rs` lost the `set_len`, and `real_server.rs` gained a test. The lesson calls this the first finding.
+- Seed 3 of the port shows five view changes with no fault: a first beat delayed past the `StartView` reads as a restart. The VOPR does the same on nine of the first forty seeds with every family off but the network, and on six with reordering off. No oracle names it. Left as it is, because the fix moves every fingerprint since Module 9. The oracle and the fix are stretch goals.
+- Numbers, one core, release: the VOPR runs one hundred seeds of three hundred requests in 2.6 s, the port in 37.4 s. About 270 against 73 virtual seconds per wall second. The tick is the difference. In debug a port seed takes 2.4 s to 6 s, so the acceptance tests run eight seeds in all.
+- No fingerprint test for the port. turmoil's latency draws go through `rand_distr::Exp`, which uses `ln`, and the sweep hash across two operating systems is untested. The VOPR fingerprint `0xcc45_30a4_8c93_496b` is unchanged.
+- `scripts/check.sh` gained twenty seeds of the port in release, about eight seconds. The three workflows did not change.
+- The syllabus title changed, because the lesson lint bans the old title's second word. The directory keeps its name.
+
 ## Definition of done
 
 - All fourteen lessons follow the template, and every link works.
@@ -244,6 +255,6 @@ Resolve each decision before or during the module that needs it. Record the deci
 | 10 Consensus | draft | draft | done | `solutions/10-consensus`. Viewstamped Replication: majority commit, the three view-change messages, `log_view` and `whole`, a hash-chained log. Also the superblock with four copies, reads that wait for a majority's beats, the fault atlas, and TigerBeetle's core. `Bug::LeaseRead` planted. Fifteen journal entries, ten regression seeds. Every fingerprint changed. New fingerprint `0xcc45_30a4_8c93_496b`. Twenty thousand seeds clean in 3 m 46 s. |
 | 11 Debugging & shrinking | draft | draft | done | `solutions/11-debugging-shrinking`. `Bug::ForgottenPromise` as the sixth planted bug. `vopr::overrides` with twenty knobs as flags, `vopr::shrink` with the greedy loop, signatures and two oracles, `vopr::inspect` with snapshots and slices. The binary gained `--hunt`, `--shrink` and `--inspect`. Decided: children, not unwinding. Seed 9916 shrinks from 150 to 57 requests in 26 runs. No fingerprint changed. |
 | 12 CI | draft | draft | done | `solutions/12-ci`. `vopr::batch`: seeds from the commit hash and a `Children` pool. Every failure is rerun twice with its trace. `Record` and `BatchReport` are files. A `Ceiling` in events per request and checker steps, 1 000 and 800 000. The binary gained `--batch`. Three workflows. `--locked` in `check.sh`. Decided: nothing is retried into a pass, wall-clock time is reported only, `Stopwatch` is the one wall clock. No fingerprint changed. Twenty thousand seeds clean in 96 s at eight jobs. |
-| 13 Landscape | not started | not started | not started | |
+| 13 Other simulators | draft | draft | done | `solutions/13-landscape`. New crate `kv-turmoil`: `TokioTime`, `SharedStorage`, `UdpNetwork`, `wire::Datagram`, `replica_host`, `client_host`, `Schedule`, `run`, and the binary. `FileStorage` no longer cuts the file. `RETROSPECTIVE.md` is the reference retrospective. Decided: `timeout` not `select!`, faults from outside, no fingerprint for the port. VOPR fingerprint unchanged. |
 
 Status values: `not started`, `draft`, `reviewed`, `done`.

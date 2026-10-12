@@ -1,0 +1,24 @@
+[package]
+name = "kv-turmoil"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "The Module 10 replica on turmoil: the same state machine under another simulator, for the comparison in Module 13."
+
+[dependencies]
+# The same features the simulator turns on, so a planted bug can be shown
+# to be found here too.
+kv-core = { path = "../kv-core", features = ["buggify", "bugs"] }
+checker = { path = "../checker" }
+determinism = { path = "../determinism" }
+turmoil = "0.7.2"
+# turmoil runs each host on a paused tokio runtime. `time` is for the
+# sleeps and the timeout the host loop waits with.
+tokio = { version = "1", features = ["time"] }
+
+[[bin]]
+name = "kv-turmoil"
+path = "src/main.rs"
+
+[lints]
+workspace = true

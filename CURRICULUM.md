@@ -52,7 +52,7 @@ Every module's coding task extends the same Cargo workspace:
 | Module 9 | A VOPR for a primary-backup replicated KV store |
 | Module 10 | A consensus protocol (Raft or Viewstamped Replication) under the VOPR |
 | Modules 11-12 | Shrinking, trace tooling, and continuous seed runs in CI |
-| Module 13 | A port onto an existing Rust DST framework and a retrospective |
+| Module 13 | A port of the replica onto `turmoil`, the comparison, and a retrospective |
 
 ### Why Rust, and what that implies
 
@@ -698,33 +698,47 @@ runs on every push on two operating systems, and the sweep hashes are
 compared. A nightly sweep runs under a time budget, and its report is
 the artifact.
 
-### Module 13: The wider landscape and the limits of DST
+### Module 13: Other simulators, and the limits of DST
 
 #### Objectives
 
-- Survey the ecosystem: FoundationDB Flow, Antithesis (deterministic
-  hypervisor for nondeterministic programs), `madsim`, `turmoil`, `shuttle`,
-  `loom`, Go `synctest`, sled's simulation testing, WarpStream, Resonate,
-  Polar Signals' FrostDB.
-- What DST cannot find: performance regressions, hardware behavior, compiler
-  and kernel bugs, and mismatches between the simulated and real environment
-  (the fidelity gap).
-- Combining DST with Jepsen-style real-cluster testing, fuzzing, and formal
-  specification.
+- The four shapes a deterministic simulator takes. An environment written
+  around a sans-I/O core: FoundationDB Flow, TigerBeetle, WarpStream, this
+  course. A runtime swapped in under existing code: `turmoil`, `madsim`,
+  sled's simulation guide, Go's `testing/synctest`. A deterministic
+  hypervisor for unchanged programs: Antithesis. A model checker for
+  thread interleavings: `loom`, `shuttle`.
+- Porting the Module 10 replica onto `turmoil` with no change to the core:
+  three trait implementations, a wire format for the peer messages, and a
+  host loop that waits with `timeout` and not `select!`.
+- Comparing the two simulators on the same replica: seeds per second,
+  virtual time per second, and what each one found. The port found a bug
+  in the real environment and a question the VOPR was never asked.
+- What DST cannot find: the fidelity gap, the real environment the
+  simulator never runs, performance regressions, compiler and kernel
+  behaviour, bugs in the oracle, and states the swarm does not reach.
+- What covers each gap: Jepsen-style real-cluster testing, fuzzing the
+  parsers, formal specification, assertions kept on in production, and a
+  hypervisor.
 
 #### Key readings
 
-- Antithesis documentation and blog.
-- `madsim` and `turmoil` READMEs and examples.
+- `turmoil`'s documentation and README, and its `rt.rs` and `top.rs`.
+- `madsim`'s README, for what a runtime swap costs.
+- Antithesis, "How Antithesis works" and "Is something bugging you?".
 - WarpStream, "Deterministic Simulation Testing for Our Entire SaaS".
-- Tyler Neely (sled), "Reliable Systems Series".
+- Tyler Neely, the sled simulation guide.
+- FoundationDB, "Simulation and Testing" and the Flow README.
 
 #### Coding task (sketch)
 
-Port your Module 10 consensus implementation onto `turmoil` or `madsim`.
-Compare them: what was easier, what you lost, and what each one found that
-the other did not. Write a short retrospective on what your simulator does
-and does not model.
+Port the Module 10 replica onto `turmoil` in a new crate. Give the peer
+messages a wire format. Draw a fault schedule from the seed and apply it
+between steps. Check the history, the logs and the quiet phase with the
+Module 8 checker. Fix the bug the port finds in the real environment.
+Write a retrospective in six parts. What the simulator models. What each
+model leaves out, and what covers it. The journal. What the port found.
+The numbers. What to do differently.
 
 ---
 

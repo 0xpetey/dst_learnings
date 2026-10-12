@@ -1,0 +1,44 @@
+# A batch of seeds on every push, on two machines that share nothing but
+# the source and the toolchain, and a check that both saw the same runs.
+# The seeds follow the commit: this commit always runs these seeds, and
+# the next commit runs others.
+name: batch
+on:
+  push:
+jobs:
+  batch:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # --locked: the lockfile is the one in the commit, or the build fails.
+      - run: cargo build --release --locked -p vopr
+      - run: >
+          target/release/vopr --batch 500 --commit ${{ github.sha }}
+          --jobs 4 --report report
+      # The report is the artifact, whatever the verdict was. A failing
+      # seed arrives as seed-N.txt with its reproduction and seed-N.trace
+      # for vopr --inspect.
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch-${{ matrix.os }}
+          path: report
+  agree:
+    # Two operating systems, two CPU architectures, one sweep hash.
+    needs: batch
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: batch-*
+      - run: |
+          grep -H '^sweep_hash=' batch-*/summary.txt
+          test "$(grep -h '^sweep_hash=' batch-*/summary.txt | sort -u | wc -l)" -eq 1
