@@ -1,0 +1,36 @@
+# Nondeterminism that no_std cannot catch, banned by lint across the whole
+# workspace. The lints are `deny` in the workspace Cargo.toml. The real
+# environment is the one place allowed to touch these, and every such use is
+# marked with `#[expect(clippy::disallowed_methods, reason = "...")]` so the
+# list of places the program touches the OS is `grep`-able.
+
+disallowed-methods = [
+    { path = "std::time::Instant::now", reason = "inject a clock; see kv_core::env::Time" },
+    { path = "std::time::SystemTime::now", reason = "inject a clock; see kv_core::env::Time" },
+    { path = "std::thread::sleep", reason = "the simulator owns time; use a timer event" },
+    { path = "std::thread::spawn", reason = "single-threaded core; the OS scheduler is nondeterministic" },
+    { path = "std::thread::Builder::spawn", reason = "single-threaded core" },
+    { path = "std::thread::scope", reason = "single-threaded core" },
+    { path = "std::env::var", reason = "environment is an uncontrolled input; pass config explicitly" },
+    { path = "std::env::var_os", reason = "environment is an uncontrolled input; pass config explicitly" },
+    { path = "std::env::vars", reason = "environment is an uncontrolled input; pass config explicitly" },
+    { path = "std::fs::read_dir", reason = "directory order is filesystem dependent" },
+    { path = "rand::random", reason = "all randomness flows from the seed; use determinism::Prng" },
+    { path = "rand::rng", reason = "all randomness flows from the seed; use determinism::Prng" },
+    { path = "core::ptr::hash", reason = "addresses differ per process under ASLR" },
+    { path = "core::ptr::from_ref", reason = "addresses differ per process under ASLR" },
+    { path = "core::ptr::from_mut", reason = "addresses differ per process under ASLR" },
+    { path = "core::ptr::addr_eq", reason = "addresses differ per process under ASLR" },
+]
+
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "iteration order is random per map; use BTreeMap (or a fixed-hasher map)" },
+    { path = "std::collections::HashSet", reason = "iteration order is random per set; use BTreeSet" },
+    { path = "std::collections::hash_map::RandomState", reason = "OS-seeded hasher" },
+    { path = "std::time::Instant", reason = "cannot be constructed by a fake clock; use kv_core::Instant" },
+    { path = "std::time::SystemTime", reason = "wall clock; inject time instead" },
+    { path = "std::sync::Mutex", reason = "single-threaded core; if you need this, you have threads" },
+    { path = "std::sync::RwLock", reason = "single-threaded core" },
+    { path = "std::sync::OnceLock", reason = "process-global state leaks between simulated nodes" },
+    { path = "std::sync::LazyLock", reason = "process-global state leaks between simulated nodes" },
+]

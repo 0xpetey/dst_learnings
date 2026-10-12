@@ -1,0 +1,25 @@
+[package]
+name = "kv-core"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+description = "The KV store as pure state machines: node, client, wire protocol and log format. No I/O."
+
+[features]
+# Fault points inside the state machines (`buggify!`). Off by default, so
+# the production binary does not even carry the dice. The simulator turns
+# it on.
+buggify = ["dep:determinism"]
+# Planted bugs (`Bugs::has`). Off by default, for the same reason. The
+# simulator turns it on so the checker can be shown to find each one.
+bugs = []
+
+[dependencies]
+# `no_std`: only `Prng` and `Chance` are used, and only under `buggify`.
+determinism = { path = "../determinism", default-features = false, optional = true }
+
+[dev-dependencies]
+determinism = { path = "../determinism" }
+
+[lints]
+workspace = true

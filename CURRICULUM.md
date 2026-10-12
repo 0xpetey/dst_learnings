@@ -572,30 +572,48 @@ and the lesson tells them.
 
 #### Objectives
 
-- Implement a real consensus protocol: Raft, or Viewstamped Replication (VSR)
-  as TigerBeetle uses it.
-- The classic bug classes DST finds: split votes with log divergence,
-  stale leaders committing, recovery with a corrupted log, membership and
-  view-change edge cases.
+- Implement a real consensus protocol: Viewstamped Replication, as
+  TigerBeetle runs it, or Raft. The reference solution is VSR with Raft's
+  persisted term.
+- The classic bug classes DST finds. A backup that claims a view before it
+  holds the view's log. A stale primary serving reads. A vote forgotten at a
+  restart. A commit counted from a stale acknowledgement. A repair that
+  erases what a majority never had.
 - Using the simulator as the primary development tool, not an afterthought:
-  write the protocol against the simulated environment first.
-- Measuring what the simulator exercises: fault coverage and state coverage.
+  write the protocol against the simulated environment first, and keep a
+  journal of every seed that fails.
+- Knowing what the model must not do: a fault atlas that keeps every record
+  intact on at least one disk, because a model that deals more than `f`
+  faults per record tests nothing a protocol can pass.
+- Measuring what the simulator exercises: promotions, pulls, repairs,
+  truncations, reads through the barrier, and a core that must be served
+  throughout the chaos.
 
 #### Key readings
 
+- Liskov & Cowling, "Viewstamped Replication Revisited" (2012), sections 4
+  and 5. The Princeton course mirror is the reachable copy.
 - Ongaro & Ousterhout, "In Search of an Understandable Consensus Algorithm"
-  (Raft), or Liskov & Cowling, "Viewstamped Replication Revisited".
-- "Protocol-Aware Recovery for Consensus-Based Storage" again, now for the
-  recovery protocol itself.
-- TigerBeetle `replica.zig` for how VSR integrates with the storage fault
-  model.
+  (Raft), the whole paper, with section 5.4 and Figure 8 next to the view
+  change.
+- Alagappan et al., "Protocol-Aware Recovery for Consensus-Based Storage"
+  (FAST 2018), for the difference between an entry a replica never had and
+  one it lost.
+- TigerBeetle `src/vsr/replica.zig` and `src/vsr/superblock.zig` for how VSR
+  integrates with the storage fault model, and `src/testing/storage.zig` for
+  `ClusterFaultAtlas`.
+- matklad, "Simulation Testing For Liveness" (TigerBeetle, 2023), for the
+  core and the view-change livelock.
 
 #### Coding task (sketch)
 
-Replace primary-backup with Raft or VSR. Run it through the VOPR with full
-network and storage faults. Keep a bug journal. For each failing seed, record
-the symptom, root cause, and fix. Target a clean run across tens of thousands
-of seeds.
+Replace the all-replicas commit rule with a majority and the gather with a
+view change. Chain the log, write the view promise to a superblock before it
+is spoken, and make reads wait for a majority's beats. Add the fault atlas
+to the disk model and a core to the simulator. Run it through the VOPR with
+full network and storage faults. Keep a bug journal. For each failing seed,
+record the symptom, root cause, and fix, and keep the seed as a regression
+test. Target a clean run across twenty thousand seeds.
 
 ---
 
