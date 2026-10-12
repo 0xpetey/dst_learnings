@@ -623,26 +623,38 @@ test. Target a clean run across twenty thousand seeds.
 
 #### Objectives
 
-- Reproduction: a seed plus a commit hash is a complete bug report.
-- Shrinking a failing run: reduce the fault schedule, shorten the run, or
-  search nearby seeds for a minimal failing case.
-- Trace tooling: structured event logs, per-replica state dumps, and
-  time-travel ("show me the cluster at tick T").
-- Visualization: what sim.tigerbeetle.com shows and why it is useful.
+- Reproduction: a seed, a commit hash and a command line make a complete
+  bug report, and the trace hash proves two reports name one run.
+- Hunting: run a range of seeds in child processes and list every failure,
+  because the binary aborts at the first one.
+- Shrinking a failing run: keep the seed, turn the configuration down one
+  knob at a time, and keep a change only when the run fails the same way.
+  What "the same way" means, and what a shrink that keeps nothing says.
+- Trace tooling: the cluster's state at any instant, reconstructed from the
+  trace alone, and the trace sliced by replica and by view.
+- Visualization: what SimTigerBeetle shows, what Antithesis's multiverse
+  debugger adds, and what a text trace does not give.
 
 #### Key readings
 
-- Hypothesis / QuickCheck literature on shrinking. The `proptest` crate's
-  shrinking strategy as the Rust reference.
-- TigerBeetle's SimTigerBeetle writeup.
-- Antithesis writing on multiverse debugging.
+- Zeller and Hildebrandt, "Simplifying and Isolating Failure-Inducing
+  Input" (IEEE TSE 2002): delta debugging and 1-minimality.
+- MacIver and Donaldson, "Test-Case Reduction via Test-Case Generation:
+  Insights from the Hypothesis Reducer" (ECOOP 2020): shrink the choices,
+  not the value.
+- The proptest book's "Shrinking Basics": `simplify` and `complicate` as
+  the Rust reference.
+- Will Wilson, "Debugging in the Multiverse" (Antithesis, 2024).
+- Eaton and Greef, "We Put a Distributed Database In the Browser"
+  (TigerBeetle, 2023), and sim.tigerbeetle.com.
 
 #### Coding task (sketch)
 
-Build a shrinker that takes a failing seed and produces a shorter or
-less-faulty reproduction. Build a trace viewer that reconstructs each
-replica's state at any virtual time. Use both on a real failure from
-Module 10.
+Plant Module 10's seed 562 again, as a bug: a replica that restarts without
+its view promise. Build a hunt that runs seeds in child processes and lists
+the failures. Build a shrinker over the run's configuration, with a failure
+signature, and a trace inspector that reconstructs each replica at any
+instant. Use all three on the planted bug.
 
 ### Module 12: Continuous simulation in CI
 

@@ -27,4 +27,4 @@ Every task is cumulative. When you finish Module N, you have exactly the startin
 
 ## Status
 
-Part I (Modules 0 to 3), Part II (Modules 4 to 6), Part III (Modules 7 to 9) and Part IV (Module 10) are written. See the status table at the bottom of [`plan.md`](plan.md).
+Part I (Modules 0 to 3), Part II (Modules 4 to 6), Part III (Modules 7 to 9) and Part IV (Module 10) are written. Part V has Module 11. See the status table at the bottom of [`plan.md`](plan.md).
