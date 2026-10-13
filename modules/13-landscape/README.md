@@ -270,6 +270,8 @@ cargo run --release -p kv-turmoil -- --seeds 0..100 --requests 50
 
 The retrospective is read, not run.
 
+From the repository root, `mise run check:13` runs this module's `scripts/check.sh` against the reference solution. `mise run sweep` runs the capstone's twenty thousand seeds against it and prints the sweep hash last.
+
 ### Hints
 
 <details>

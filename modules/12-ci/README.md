@@ -301,6 +301,8 @@ git push                                                              # to a for
 
 The last two are run by hand. The nightly runs on `workflow_dispatch` from the Actions tab.
 
+From the repository root, `mise run sweep` runs the same twenty thousand seeds against the final reference solution, and `mise run sweep --jobs 4` runs them four at a time. Its last line is the sweep hash, `d8cc45fc8ef93f20` on the pinned toolchain. If no trace line changed since Module 10, your workspace prints the same hash.
+
 ### Hints
 
 <details>
