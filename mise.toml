@@ -4,7 +4,8 @@ node = "latest"
 # `mise run check` runs every reference solution's acceptance suite, one after
 # another. `mise run check:NN` runs one module's. `mise run check:project`
 # runs the suite in your own workspace, with whichever scripts/check.sh you
-# copied in last.
+# copied in last. `mise run sweep` runs the capstone's twenty thousand seeds,
+# `mise run sweep --jobs 4` with four children instead of eight.
 
 [tasks.check]
 description = "Run every reference solution's check.sh, in order"
@@ -26,6 +27,13 @@ run = [
   "mise run check:12",
   "mise run check:13",
 ]
+
+[tasks.sweep]
+description = "Twenty thousand seeds of the final solution, as a batch"
+dir = "solutions/13-landscape"
+# About two minutes at eight jobs on an eight-core laptop. The last line is
+# the sweep hash, which d8cc45fc8ef93f20 pins for this toolchain and OS.
+run = 'cargo run --release --locked -q -p vopr -- --batch 20000 --from 0 --jobs {{option(name="jobs", default="8")}}'
 
 [tasks."check:project"]
 description = "Run scripts/check.sh in your own workspace"

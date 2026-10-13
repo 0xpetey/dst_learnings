@@ -21,7 +21,7 @@ dst_learnings/
   README.md
   CURRICULUM.md
   plan.md
-  mise.toml           # tasks: check, check:NN, check:project
+  mise.toml           # tasks: check, check:NN, check:project, sweep
   modules/
     00-why-dst/README.md
     01-determinism/README.md
