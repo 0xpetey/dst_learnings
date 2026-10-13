@@ -196,6 +196,8 @@ cargo tree -p kv-core                       # kv-core alone, plus determinism as
 grep -rn "#\[expect(clippy::disallowed" crates/kv-env   # one line per OS touch point
 ```
 
+From the repository root, `mise run check:project` runs the same script in your workspace. `mise run check:03` runs it in the reference solution.
+
 The Module 2 tests still pass unchanged, including `known_seed_fingerprint`. The restructured crates must not change a single trace line.
 
 ### Hints
