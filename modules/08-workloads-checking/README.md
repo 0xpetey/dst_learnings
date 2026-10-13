@@ -61,7 +61,7 @@ The reference model is the simplest correct store there is, a `BTreeMap`. `check
 
 The model is a complete check for a sequential history, because a sequential history has exactly one order. The moment two operations overlap, there are two orders, and the model does not know which one the store took. The test `many_clients_overlap_and_only_the_search_can_judge_them` shows the loop refusing: `NotSequential { first, second }`, the first pair that overlaps.
 
-### Linearizability
+### Family three: linearizability
 
 Herlihy and Wing gave the definition in 1990, and it is one sentence. Each operation appears to take effect instantaneously at some point between its invocation and its response. The picture is the one every Jepsen report draws:
 
@@ -125,7 +125,7 @@ This is the check TigerBeetle calls its `StateChecker`. Every replica that commi
 | `StaleReadAfterRestart` | Recovery rebuilds the last record's session and skips its entry | A crash and a restart | The state checker at the restart. The history checker on the first read after it |
 | `DuplicateApplyOnRetry` | A retry of a finished request runs again instead of being answered from the session | A lost reply, so that the client retries | The history checker, through a delete that is told the key was not there |
 
-The lost update is the interesting row. Two clients put to one key at the same moment, and the second one's value never appears. The history checker accepts that. The two puts overlap, so the order in which they took effect is the store's to choose. "The second one took effect first" explains every later read. The history cannot tell a lost write from a write that lost the race. Only a third fact pins the order. A delete submitted behind a put is answered `existed: true`, and a read after the delete returns the put's value. No order explains that, and the checker says so. The state checker needs no such luck. The log has the second record and the map does not, and the replay disagrees on the spot. The test `the_white_box_check_finds_a_bug_before_any_client_can` runs a workload of nothing but writes. The history checker passes it, and the replay fails it.
+The lost update is the interesting row. Two clients put to one key at the same moment, and the second one's value never appears. The history checker accepts that. The two puts overlap, so the order in which they took effect is the store's to choose. "The second one took effect first" explains every later read. The history cannot tell a lost write from a write that lost the race. Only a third fact pins the order. A delete submitted behind a put is the write that is lost. It is answered `existed: true`, and a read after it returns the put's value. No order explains that, and the checker says so. The state checker needs no such luck. The log has the second record and the map does not, and the replay disagrees on the spot. The test `the_white_box_check_finds_a_bug_before_any_client_can` runs a workload of nothing but writes. The history checker passes it, and the replay fails it.
 
 Each bug also hides from a workload that cannot reach it, and `each_bug_hides_from_a_workload_that_cannot_reach_it` pins that too. One client never has two writes in flight. No crash means no recovery. A reliable network means no retry. A checker that reports nothing told you nothing about the store. It told you about the workload.
 
@@ -133,7 +133,7 @@ Each bug also hides from a workload that cannot reach it, and `each_bug_hides_fr
 
 Safety is "nothing bad happens", and for the store it is linearizability. Every history the store produces is linearizable, under every fault. Liveness is "something good happens", and for the store it is that a request is eventually answered. Under faults that is not a promise the store can keep. A client whose node is partitioned away is allowed to give up, and the history records a pending operation. Liveness is therefore checked where Module 7 put it, in the quiet period. After `stop_faults`, the chaos run of this module submits thirty more requests and requires that every one of them completes. A request that is not answered after the faults stopped is a liveness bug, and Module 10 produces several.
 
-One exception is deliberate. A host that halted over a damaged log stays down, and `run_workload` gives its clients nothing more to do. They are reported as stranded rather than failed. Module 10 repairs that host from its replicas, and the exception goes away.
+One exception is deliberate. A host that halted over a damaged log stays down, and `run_workload` gives its clients nothing more to do. They are reported as stranded rather than failed. Module 9 repairs that host from its replicas, and the exception goes away.
 
 ### Reading a failure
 
@@ -192,7 +192,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 7 workspace, or from `solutions/07-fault-injection/`. The acceptance tests and the script are in `modules/08-workloads-checking/`. `tests/checker/linearize.rs` goes into `crates/checker/tests/`. `tests/kv-core/bugs.rs` goes into `crates/kv-core/tests/`. `tests/kv-env/workload.rs` goes into `crates/kv-env/tests/`, next to the five tests you already have, which do not change. `scripts/check.sh` replaces yours. It gains two lines, a bare-metal check of `checker` and the `bugs` feature on the bare-metal check of `kv-core`.
+Start from your Module 7 workspace, or from `solutions/07-fault-injection/`. The acceptance tests and the script are in `modules/08-workloads-checking/`. `tests/checker/linearize.rs` goes into `crates/checker/tests/`. `tests/kv-core/bugs.rs` goes into `crates/kv-core/tests/`. `tests/kv-env/workload.rs` goes into `crates/kv-env/tests/`, next to the five tests you already have, which do not change. `scripts/check.sh` replaces yours. It adds one line, a bare-metal check of `checker`, and puts the `bugs` feature on the bare-metal check of `kv-core`.
 
 ### Requirements
 
@@ -230,7 +230,7 @@ Start from your Module 7 workspace, or from `solutions/07-fault-injection/`. The
 scripts/check.sh                                # ends with "all checks passed"
 cargo tree -p checker                           # checker, kv-core and determinism, nothing else
 cargo tree -p kv-core                           # kv-core alone, plus determinism as a dev-dependency
-grep -rn 'bugs.has' crates/kv-core/src/node.rs  # exactly three branches
+grep -rn 'self.bugs.has(' crates/kv-core/src/node.rs  # exactly three branches
 cargo test -p kv-env --test workload -- --nocapture each_planted_bug_is_found
 cargo test --release -p kv-env --test fault_injection
 ```
@@ -328,4 +328,4 @@ Set the constant to zero. Run the test, and read the hash from the assertion mes
 
 ## What's next
 
-The simulator can run a swarm configuration, drive a workload across many clients, and say whether the store answered correctly. The pieces are all there and they are still assembled by hand. A test function draws a configuration, builds a world, runs the workload, stops the faults and checks. Module 9 makes that one program. `vopr --seed N` draws everything from the seed and prints the configuration. It runs the chaos phase for a number of events, stops the faults, runs to convergence, and reports. Then it gets a real target. The store becomes a primary with a backup and an explicit failover rule. That is the first version of it with genuine distributed bugs to find, and the first one where the liveness check has something to say.
+The simulator can run a swarm configuration, drive a workload across many clients, and say whether the store answered correctly. The pieces are all there and they are still assembled by hand. A test function draws a configuration, builds a world, runs the workload, stops the faults and checks. Module 9 makes that one program. `vopr --seed N` draws everything from the seed and prints the configuration. It runs the chaos phase for a number of requests, stops the faults, runs to convergence, and reports. Then it gets a real target. The store becomes a primary with backups and an explicit failover rule. That is the first version of it with genuine distributed bugs to find, and the first one where the liveness check has something to say.

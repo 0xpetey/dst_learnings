@@ -4,7 +4,7 @@
 
 Module 9 built a replicated store that was safe and not live. A write was answered once every disk had it, and a new primary served once every replica reported. One replica away stopped the cluster. This module pays for liveness with a majority, and finds out what a majority costs. The commit rule becomes "`f + 1` of `2f + 1`". The gather becomes a view change. The repair becomes a protocol of its own, with a hash chain and a fault atlas. Two things the earlier modules put off come due: a superblock, and a reason why every replica's disk is not the same thing as the cluster's log.
 
-The simulator is the development tool here, not the afterthought. The protocol was written against it from the first line, and the sweep found fifteen bugs before the module was done. Each one is in the journal below, with its seed, and each seed is a regression test. That journal is the real content of this module. The protocol itself is a few hundred lines. Knowing why each line is there is the work.
+The simulator is the development tool here, not the afterthought. The protocol was written against it from the first line. Fifteen bugs went into the journal before the module was done, thirteen found by the sweep and two by hand. Each one is in the journal below, and each seed is a regression test. That journal is the real content of this module. The protocol itself is a few hundred lines. Knowing why each line is there is the work.
 
 ## Objectives
 
@@ -42,7 +42,7 @@ Three messages, from Liskov and Cowling's paper, section 4.2.
 
 The last clause is the module's own. The published protocol lets the new primary serve at once and commit the tail of the chosen log on the way. This replica builds its node from the whole log as a committed thing, so the tail must be committed first. A client whose write is in that tail gets its answer from the session the record made.
 
-Between views a replica is in `ViewChange`. Nothing it says counts. Its durable count is not of the new view's log. Its offer is for the primary only. Its beat is a vote and nothing more. The new primary counts a backup's disk only once the backup reports itself a backup of the view.
+Between views a replica is in `ViewChange`. Nothing it says counts. Its durable count is not of the new view's log. Its offer is for the primary only. Its beat is a vote, and to the new primary an offer, and nothing more. The new primary counts a backup's disk only once the backup reports itself a backup of the view.
 
 ```text
   n1 detector: n0 Down          n2 detector: n0 Down
@@ -59,7 +59,7 @@ Between views a replica is in `ViewChange`. Nothing it says counts. Its durable 
 
 ### The normal view, and who is whole
 
-An offer carries `log_view`, the last view the sender was normal in. A replica is normal in a view once it holds the view's log, the one the primary vouched for. From then on it appends only what that primary sends. So a log from a higher normal view contains everything a lower one committed. That is the induction the view change rests on.
+An offer carries `log_view`, the last view the sender was normal in. A replica is normal in a view once it holds the view's log, the one the primary vouched for. From then on it appends only what that primary sends. So a log from a higher normal view contains everything a lower one committed. That is the induction the view change rests on. The first word, below, is the first message a backup hears from the view's primary.
 
 Seed 7 found the induction broken. A backup took view 17 on the primary's `StartView`, never received the records, and offered its short log as a view-17 log. The next primary preferred it to a longer log from view 15 and tried to drop six committed records. The guard caught it. The rule now has two parts. A backup claims a view once its log is as long as the primary's was at the first word. It also claims it once it holds any record prepared in the view. Seed 22 found the first version of that rule. It compared against a length that grew with every append, so a backup one record behind never claimed anything.
 
@@ -75,7 +75,7 @@ That one field does three jobs. A backup needs no `prevLogTerm`: a prepare that 
 
 Seed 24 found what a beat is allowed to say. A beat from the primary arrived a hundred and thirty milliseconds late. Its log was three records shorter than the prepares the backup accepted since, and the backup cut to match. Within a view the primary only appends, so a shorter beat is older news. After the first word from a primary, a backup cuts only on a real disagreement: both logs have the record, in different views.
 
-Truncation never goes below the commit number, and `truncate` asserts it. Seven of the fifteen bugs fired that assertion. It is the most useful line in the module. Seed 13 found it wrong once. A stepped-down primary adopted the new primary's commit number before dropping its own uncommitted tail. The guard compared record 7 against a commit that belonged to another log. Drop the tail first.
+Truncation never goes below the commit number, and `truncate` asserts it. Five of the fifteen bugs fired that assertion. Three more fired its twin in the view change, which checks the chosen log against the commit number. It is the most useful line in the module. Seed 13 found it wrong once. A stepped-down primary adopted the new primary's commit number before dropping its own uncommitted tail. The guard compared record 7 against a commit that belonged to another log. Drop the tail first.
 
 ### The promise
 
@@ -93,7 +93,7 @@ Module 9's primary answered reads from its map. With every replica in every quor
 
 A read waits. At the read's arrival the primary notes each peer's last beat. It answers once `f` peers sent a beat in this view since. Those beats say a majority still follows this primary, so nothing newer than its map was committed anywhere. Raft calls this a read index. It costs up to one heartbeat interval of latency, and nothing in correctness.
 
-A lease is the cheaper answer: "I heard from a majority a moment ago, so I am still the primary." The planted bug `Bug::LeaseRead` answers at once on a lease: two detector timeouts since a majority last beat, by the primary's own clock. Under the Module 7 clock model, drift reaches fifty per cent. The others elect a new primary after one timeout by their clocks. The old one holds its lease by its own. The hunt in `vopr.rs` finds it, and needs runs five times the usual length to see enough partitions.
+A lease is the cheaper answer: "I heard from a majority a moment ago, so I am still the primary." The planted bug `Bug::LeaseRead` answers at once on a lease: two detector timeouts since a majority last beat, by the primary's own clock. Under the Module 7 clock model, drift reaches fifty per cent. The others elect a new primary after one timeout by their clocks. The old one holds its lease by its own. The hunt in `vopr.rs` finds it, and needs runs five times the hunt's usual hundred and twenty requests to see enough partitions.
 
 ### Repair and the atlas
 
@@ -118,18 +118,18 @@ The seed also draws five nodes one time in four. Nothing in the protocol is writ
 | Seed | What was seen | What was wrong | What changed |
 |---|---|---|---|
 | hand | Backups emptied their logs at a restart of the primary | The restarted primary's first beat, sent before its disk was read, said view 0 and an empty log, and the backups followed it | Beats carry the sender's status, and only a serving primary's log is followed |
-| 7 | Truncate record 88 with commit 93 | A backup took the view before its log and offered a short log under the view's number | A backup claims a view once it holds the view's log |
-| 13 | Truncate record 7 with commit 10 | The guard's own bug: the commit number adopted before the old tail was dropped | Drop first, then learn the commit |
+| 7 | Told to truncate record 88, committed through 93 | A backup took the view before its log and offered a short log under the view's number | A backup claims a view once it holds the view's log |
+| 13 | Told to truncate record 7, committed through 10 | The guard's own bug: the commit number adopted before the old tail was dropped | Drop first, then learn the commit |
 | 19 | Durable count one behind the log forever | A truncation marked every pending append stale, including those below the cut | Only appends at or past the cut are stale |
-| 22 | Chosen log of 50 records, 51 committed | The catch-up target moved with every append, so a backup one behind never claimed the view | The target is the log's length at the first word, or any record of the view |
-| 24 | Truncate record 33 with commit 33 | A beat reordered by 130 ms carried a shorter log than the prepares since | After the first word, cut only on a disagreement |
-| 36 | Chosen log of 79 records, 89 committed | A repaired log offered under the view of the records before the hole | Claim again once the log is whole |
-| 525 | Truncate record 112 with commit 112 | A disk lost two acknowledged records, and a view started without them while the one replica that had them was slow | A view never starts with a log shorter than any commit heard, and a beat between views is an offer |
-| 562 | Truncate record 27 with commit 27 | A vote forgotten at a restart, and two majorities | The superblock |
+| 22 | The chosen log has 50 records, 51 are committed | The catch-up target moved with every append, so a backup one behind never claimed the view | The target is the log's length at the first word, or any record of the view |
+| 24 | Told to truncate record 33, committed through 33 | A beat reordered by 130 ms carried a shorter log than the prepares since | After the first word, cut only on a disagreement |
+| 36 | The chosen log has 79 records, 89 are committed | A repaired log offered under the view of the records before the hole | Claim again once the log is whole |
+| 525 | Told to truncate record 112, committed through 112 | A disk lost two acknowledged records, and a view started without them while the one replica that had them was slow | A view never starts with a log shorter than any commit heard, and a beat between views is an offer |
+| 562 | Told to truncate record 27, committed through 27 | A vote forgotten at a restart, and two majorities | The superblock |
 | 563 | Three records committed on one disk | An old durable count from before the view carried into it | An acknowledgement from a new backup sets the count, never raises it |
 | 7775 | The node's pending writes out of order | A cut-off primary served a client that another primary had answered | A newer request while a write is pending is dropped as superseded |
 | hand | View 1 ten milliseconds into a clean start | The restart rule fired on a primary's first beat | The rule applies only to a backup already following |
-| 5884 | Chosen log of 35 records, 36 committed | A view started from two logs that had lost or never had a record, with nothing heard | `whole`, and a majority of whole logs or every log |
+| 5884 | The chosen log has 35 records, 36 are committed | A view started from two logs that had lost or never had a record, with nothing heard | `whole`, and a majority of whole logs or every log |
 | 619 | Every read after 28.6 s returned the value before an acknowledged write | Two disks lost the same record: beyond `f` | The fault atlas, and `Missing` counted from every peer |
 | 353 | 1271 views in 950 s, nothing served | `Missing` counted only from whole peers, and no peer became whole again | `Missing` from any peer that read its disk |
 
@@ -196,7 +196,7 @@ Start from your Module 9 workspace, or from `solutions/09-vopr/`. The acceptance
 8. The chain in use. A prepare is accepted on two conditions: `seq == len + 1` and `parent == chain()`. A backup truncates itself against the primary's runs, in full on the first word, on a disagreement afterwards, and never below `commit`. A repair writes a retained record that chains and drops one that does not as a stray. It fetches at a hole, and erases once every peer answered `Missing`.
 9. `note_caught_up`: a backup claims the view once `len >= start_len` or its last record is of the view, sets `whole`, and writes the superblock.
 10. Reads. A `Get` at the primary waits until `f` peers have beaten in this view since it arrived, up to `READS_MAX` waiting. `Bug::LeaseRead` as a fifth planted bug answers at once within two `suspect_after` of a majority's last beat.
-11. A new request from a client whose write is pending is superseded: the node drops it and counts it. A primary that hears its own view's primary beat with `Reading`, `Joining`, `Repairing` or `Erasing` status, while a backup, fails over.
+11. A new request from a client whose write is pending is superseded: the node drops it and counts it. A backup that hears its view's primary beat with `Reading`, `Joining`, `Repairing` or `Erasing` status fails over.
 12. Invariants after every input, as before, plus four. A checksum per record. Views never decrease along the log. A backup and a primary hold a promise for their view. A primary's node is at `commit`.
 
 #### The environment and the model
@@ -204,7 +204,7 @@ Start from your Module 9 workspace, or from `solutions/09-vopr/`. The acceptance
 13. `sim::Atlas` with `allow(disk, first, count)` and `clear(disk, first, count)`. `Disk::set_atlas(id, atlas)`. Lost, misdirected, rotten and unreadable sectors ask the atlas after the roll. `DiskStats::vetoed`. `kv_env::fake::ClusterAtlas` with `f`, attached to every disk of a world with three or more hosts. `World::log_on_disk(node)`.
 14. `WorldConfig::core`. Crashes and pauses skip the core, partitions heal the links among it, and the configuration line shows it.
 15. `RunConfig::from_seed` draws `nodes` as five one time in four and a core one time in two, after every other draw. `run` asserts no core client gave up during the chaos. The disk check uses `log_on_disk`.
-16. The fingerprints. Seed 1 of `RunConfig::from_seed(1, 150)` is `0xcc45_30a4_8c93_496b`. The six older ones are in their tests.
+16. The fingerprints. Seed 1 of `RunConfig::from_seed(1, 150)` is `0xcc45_30a4_8c93_496b`. The five ported `kv-env` tests carry their own, and every one of them changed.
 
 ### Acceptance criteria
 
@@ -215,7 +215,7 @@ cargo test -p vopr --release -- --nocapture a_lease            # prints the seed
 cargo run --release -p vopr -- --seeds 0..20000 | tail -1      # one trace_hash line, in about four minutes
 ```
 
-Ten seeds of the journal are in `regression_seeds_still_pass`, under three nodes and no core, because they were found before those draws existed. The other five entries, the two found by hand and seeds 5884, 619 and 353, are not pinned.
+Ten seeds of the journal are in `regression_seeds_still_pass`, under three nodes and no core, because they were found before those draws existed. Module 9's four regression seeds are retired. Every fingerprint changed, so those seed numbers no longer name the runs that found the bugs. The other five entries, the two found by hand and seeds 5884, 619 and 353, are not pinned.
 
 ### Hints
 
@@ -251,6 +251,13 @@ The disk completes in order. A superblock write submitted before a record's appe
 <summary>The atlas and determinism</summary>
 
 Roll the dice first, then ask the atlas. Ask the atlas first and skip the roll, and a seed consumes different randomness with and without one. The single-host tests of Modules 6 to 8 change meaning.
+
+</details>
+
+<details>
+<summary>Finding your fingerprints</summary>
+
+Every fingerprint changes in this module. Set each constant to zero and read the hash from the assertion. Then run the binary twice and compare, as in Module 9.
 
 </details>
 
@@ -308,4 +315,4 @@ Count `status view=` lines per replica in the trace. A view that rises by one ev
 
 ## What's next
 
-Fifteen bugs, each found by a seed and each read from a trace of some thousand lines. That took minutes for each, and only because the trace carries every message on one line and the guard names the record. Module 11 makes that faster. It shrinks a failing seed's configuration to the smallest that still fails. It slices a trace by replica and by view. It turns a journal entry into a one-line reproduction. Module 12 puts the sweep in CI, where twenty thousand seeds a night is the floor and the first failing seed is the morning's work.
+Fifteen bugs, thirteen found by a seed, and each read from a trace of some thousands of lines. That took minutes for each, and only because the trace carries every message on one line and the guard names the record. Module 11 makes that faster. It runs a range of seeds past the first failure. It shrinks a failing seed's configuration to the smallest that still fails. It slices a trace by replica and by view. It turns a journal entry into a one-line reproduction. Module 12 puts the sweep in CI, where twenty thousand seeds a night is the floor and the first failing seed is the morning's work.

@@ -253,7 +253,7 @@ fn a_fast_clock_beats_more_often_and_a_very_fast_one_suspects_its_peers() {
     w.run_for(Duration::from_secs(10));
     assert_eq!(w.heartbeat(0).stats().downs, 0);
 
-    // Give the peer a slow clock too: its beats are now 150 ms of wall time
+    // Give the peer a slow clock too: its beats are now 200 ms of wall time
     // apart. Still under 233 ms. Drift alone does not eat a 3.5x margin.
     w.hosts[1].clock.set_drift_ppm(-500_000);
     w.run_for(Duration::from_secs(10));

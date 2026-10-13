@@ -137,7 +137,7 @@ The real `FileStorage` is synchronous underneath. `append` writes, syncs, and qu
 
 ### The event loop decision
 
-The plan listed an open decision: a hand-rolled single-threaded loop with explicit state machines, or a minimal `async` executor written for the course. This module decides on the hand-rolled loop and keeps it.
+`plan.md`, the course's work plan, listed an open decision: a hand-rolled single-threaded loop with explicit state machines, or a minimal `async` executor written for the course. This module decides on the hand-rolled loop and keeps it.
 
 The reasons are:
 
@@ -201,7 +201,7 @@ Start from your Module 1 workspace, or from `solutions/01-determinism/`. Add two
 7. `kv_core::env` defines the `Time`, `Storage`, `Network`, `Observer` traits as in the lesson. It defines a generic `Driver` with `new`, `step() -> usize`, `run_until_idle()`.
 8. `kv_env::fake` provides `FakeTime`, `FakeStorage`, `FakeNetwork`, `TraceObserver`, and `World`. `FakeTime` advances by hand. `FakeStorage` is a `Vec<u8>` log with explicit or automatic completion, `with_log` for restart, and `pending()`. `FakeNetwork` has two queues. `TraceObserver` records every input and output into a Module 1 `Trace`. `World` wires one node and any number of clients together. It provides `add_client`, `submit`, `advance`, `settle`, and `call`. It also provides `take_completed`, `drop_replies`, `completed`, `gave_up`, `trace()`.
 9. `kv_env::real` provides `RealTime`, `FileStorage`, `TcpNetwork`, `serve(addr, data_dir, verbose, on_ready)` and `call(addr, client_id, request, config)`. `FileStorage` writes at the offset from the node, truncates, and calls `sync_data`. `TcpNetwork` does non-blocking accept and read, keeps per-connection buffers, and routes replies by client id. `call` drives a `Client` with the real clock and a read timeout.
-10. The `kv` binary supports `serve <addr> <dir>`, `get`, `put`, `delete`. It prints `listening on <addr>` once bound. It exits non-zero on a rejected request.
+10. The `kv` binary supports `serve <addr> <dir> [--verbose]`, `get`, `put`, `delete`. It prints `listening on <addr>` once bound. It exits non-zero on a rejected request.
 11. The determinism check is a test. `seeded_workload_matches_model_and_is_deterministic` runs a seeded random workload against the fake environment. The workload has up to four clients, lost replies, and delayed completions. The test compares every reply against a reference `BTreeMap`. It runs the whole thing through `check_determinism` for twenty seeds. It must pass. `known_seed_fingerprint` pins the trace hash of seed 1. Your hash differs from the hash of the solution unless your trace lines are byte-identical. Replace the constant with yours after the workload test passes. Keep it pinned from then on.
 
 ### Acceptance criteria
@@ -223,7 +223,7 @@ cargo run --bin kv -- get 127.0.0.1:7000 greeting     # hello
 cargo run --bin kv -- get 127.0.0.1:7000 greeting     # still hello
 ```
 
-`scripts/check.sh` runs the three commands and then the restart, on a port the OS picks and in a temporary directory. It ends with "all checks passed".
+`scripts/check.sh` runs `cargo fmt --check`, the three commands and then the restart, on a port the OS picks and in a temporary directory. It ends with "all checks passed".
 
 ### Hints
 

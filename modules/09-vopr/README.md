@@ -6,7 +6,7 @@ After Module 8 every piece of a simulator exists. A scheduler owns time. A netwo
 
 The second thing that does not exist is a target worth the trouble. Three hosts were three stores. Each node answered its own clients from its own disk, and nothing one node did reached another. The bugs that a simulator earns its keep on are the ones between nodes. So this module makes the three hosts one store. The node becomes a replica. One replica is the primary and answers clients, the others are backups, and a write is answered only once it is on every disk. There is an explicit failover rule, a procedure for a new primary to take over, and a repair for a disk that lost a record. That is primary-backup replication, the simplest replication there is, and it is enough to have real distributed bugs.
 
-The simulator found three while the module was written. Each one is in this lesson as a story, because that is what a VOPR produces: a seed, a configuration, a trace, and an assertion, which together say exactly what went wrong. Module 10 replaces the protocol with a real consensus protocol. The VOPR built here is the tool it is developed under.
+The simulator found four while the module was written, three in the protocol and one in its own checker. Each one is in this lesson as a story, because that is what a VOPR produces: a seed, a configuration, a trace, and an assertion, which together say exactly what went wrong. Module 10 replaces the protocol with a real consensus protocol. The VOPR built here is the tool it is developed under.
 
 ## Objectives
 
@@ -124,7 +124,7 @@ safety: key "k0" is not linearizable: after 12 operations [0, 1, ..., 10, 12], n
 
 A read at twenty seconds returned a value that two acknowledged writes had replaced at nine. The trace shows the log lengths in the beats. At eleven seconds two replicas had 42 records. At twelve and a half one of them reported 21. At fourteen the third reported 16. At seventeen a new primary gathered on the longest log in sight, which was 28 records, and served.
 
-A lost write is a hole that nobody sees until the next restart. At two lost writes in a thousand and a hundred writes per replica, every replica has a hole somewhere. Each replica's hole is in a different place. Every restart found a hole, erased everything after it, and reported the short prefix. The records after the hole were real, and on that replica's disk, and the only copies left in anyone's memory. Three restarts in a row threw away fourteen committed writes.
+A lost write is a hole that nobody sees until the next restart. At nineteen lost writes in a thousand and a hundred writes per replica, every replica has a hole somewhere. Each replica's hole is in a different place. Every restart found a hole, erased everything after it, and reported the short prefix. The records after the hole were real, and on that replica's disk, and the only copies left in anyone's memory. Three restarts in a row threw away fourteen committed writes.
 
 The repair now keeps what it finds. Recovery stops at the first hole, and `log::salvage` collects every valid record beyond it. The replica asks every peer for the missing record. The first answer fills the hole, and the replica writes out the records it kept. If the next record is another hole, it asks again. A replica that is repairing reports in its beats the highest record it holds, so a gathering primary knows to wait for it. Only once every peer answered that it does not have the record does the replica erase from the hole on. A record that no peer has was never anywhere else, so it was never acknowledged, and what follows it was prepared on top of it.
 
@@ -144,9 +144,13 @@ Seed 4668 found the third one, and it is the oldest kind of distributed bug ther
 
 Beats and acknowledgements now carry a boot id and the heartbeat's own sequence number. The environment hands the replica its boot id at start. It is the host's incarnation in the fake world and the wall clock in the real one, so a restart gets a larger one. A replica applies a beat only with a `(boot, seq)` above the last one it applied from that peer. The heartbeat still counts the straggler as a sign of life, which it is. Only the claim about the log is ignored.
 
+### The checker's own bug
+
+Seed 12784 found the fourth, and it was not in the protocol. The white-box check compared the primary's map with its disk. A misdirected write had put a hole in that disk, and the primary had not restarted, so it had not found the hole yet. Its map was right and its disk was wrong, and the check blamed the map. The check now compares the map with the log the replica holds in memory. Only a disk that cannot damage its medium is also compared with that log. A checker that is wrong about what the system must hold is a bug like any other. The seed that found it is a regression test like any other.
+
 ### Reading a failing run
 
-The three stories above were read the same way, and the lesson spells it out once:
+The four stories above were read the same way, and the lesson spells it out once:
 
 1. The seed. `vopr --seed N` reproduces the run bit for bit, in this process and in another.
 2. The configuration line. Which families were on tells you which faults to suspect. Seed 36 had lost writes and crashes. Seed 4668 had reordering. Seed 402 had misdirected writes.
@@ -157,9 +161,9 @@ Every trace line carries true time, the host, and what happened. The lines you w
 
 ### What the swarm reaches
 
-A protocol that is never driven into its hard paths is not tested there. The acceptance test counts, over forty seeds of one hundred requests each, how often the swarm reached each path. Every seed failed over at least once. A new primary pulled a log it did not have on most seeds. Damaged logs were repaired on a handful. A primary stepped down on a majority. The counts are printed by `the_swarm_reaches_the_replication_code`, and the lesson does not pin them, because every change to the protocol moves them.
+A protocol that is never driven into its hard paths is not tested there. The acceptance test counts, over forty seeds of one hundred requests each, how often the swarm reached each path. Every seed failed over at least once. A new primary pulled a log it did not have on most seeds. Damaged logs were repaired on a handful. A primary stepped down on a majority of seeds. The counts are printed by `the_swarm_reaches_the_replication_code`, and the lesson does not pin them, because every change to the protocol moves them.
 
-Two hundred seeds run in `scripts/check.sh`. Twenty thousand ran clean before the module was finished, at about a hundred seeds per second in release. The three seeds that found bugs are regression tests, and the test that runs them says what each one found.
+Two hundred seeds run in `scripts/check.sh`. Twenty thousand ran clean before the module was finished, at about a hundred seeds per second in release. The four seeds that found bugs are regression tests, and the test that runs them says what each one found.
 
 ### How TigerBeetle does it
 
@@ -230,7 +234,7 @@ Start from your Module 8 workspace, or from `solutions/08-workloads-checking/`. 
 19. `vopr::RunConfig::from_seed(seed, requests)` draws the world, the workload and the workload's seed in that order. It fixes three nodes, two clients per node, thirty quiet requests, a ten-second convergence timeout, and the client configuration of the Module 8 chaos test. `Display` is the configuration line of the lesson.
 20. `vopr::run(&RunConfig) -> Report`, with the phases of the lesson in order. It panics at the first check that fails, with a message that starts `safety:` or `liveness:`. A liveness message lists every replica and the first record two logs disagree on. The white-box check compares the primary's map with the log it holds. On a disk that cannot damage its medium, it also compares that log with the disk. `Report` has the counts the binary prints and `hash`, the trace's hash.
 21. The binary. `vopr --seed N [--requests N] [--trace]` and `vopr --seeds A..B [--requests N]`. It prints the configuration before the run and ends with a `trace_hash=` line, which for a sweep folds every seed's hash into one.
-22. The fingerprint. Seed 1 of `RunConfig::from_seed(1, 150)` is `0xc85d_a241_4993_66e8`.
+22. The fingerprints. Seed 1 of `RunConfig::from_seed(1, 150)` is `0xc85d_a241_4993_66e8`. The five ported `kv-env` tests changed too. The seeded workload is `0x7f7e_3433_c031_8cdd`. The network chaos run is `0x1e66_f57c_f2f3_a4a2`. The storage chaos run is `0x48cc_d1a5_c747_609a`. The swarm run is `0xcf70_50fa_25da_f2f4`. The workload chaos run is `0xe688_4dda_2f79_6c8c`.
 
 ### Acceptance criteria
 
@@ -340,4 +344,4 @@ Set the constant to zero and read the hash from the assertion. Then run the bina
 
 ## What's next
 
-The simulator is a program now, and it has caught three bugs in a protocol that fits in one file. The protocol is also the simplest one there is, and it blocks whenever a replica is away. Module 10 replaces it with a consensus protocol, Raft or Viewstamped Replication, written against this simulator from the first line. The commit rule becomes a majority, the gather becomes an election and a view change, and the repair becomes a protocol of its own. The VOPR gains TigerBeetle's liveness mode, in which the replicas outside the core never come back, and the bug journal starts. The target is tens of thousands of seeds clean, with every seed that ever failed kept as a test.
+The simulator is a program now. It has caught three bugs in a protocol that fits in one file, and one in its own checker. The protocol is also the simplest one there is, and it blocks whenever a replica is away. Module 10 replaces it with a consensus protocol, Viewstamped Replication, written against this simulator from the first line. The commit rule becomes a majority, the gather becomes a view change, and the repair becomes a protocol of its own. The VOPR gains TigerBeetle's liveness mode, in which the replicas outside the core can stay broken for the whole chaos phase. The bug journal starts. The target is tens of thousands of seeds clean, with every seed that ever failed kept as a test.

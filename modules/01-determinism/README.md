@@ -2,7 +2,7 @@
 
 ## Why this module exists
 
-Module 0 left you with a program that fails one run in three and never in the same way twice. You wrote down what you need to control to make one failure repeat. This module builds the first piece of that control. The piece is a precise, mechanical way to say whether two runs of a program were the same.
+Module 0 left you with a program that fails two runs in three and never in the same way twice. You wrote down what you need to control to make one failure repeat. This module builds the first piece of that control. The piece is a precise, mechanical way to say whether two runs of a program were the same.
 
 Everything later in the course rests on this check. A simulator that is "mostly deterministic" is a flaky test with extra steps. A flaky test is a test that fails only some of the time. A seed is the one number that selects a run. When seed 8812 finds a bug on the CI machine (the shared build server), the same seed must find the same bug on your laptop. It must find the bug at the same virtual time, with the same trace.
 
@@ -142,7 +142,7 @@ The tests in `project/crates/determinism/tests/` are the acceptance tests. They 
 
 1. Make `Prng::from_seed(u64)` expand the seed with SplitMix64 into xoshiro256++ state. Make `Prng::next_u64` one xoshiro256++ step. The test in `tests/reference_prng.rs` compares 10 000 outputs for six seeds against `rand_xoshiro`. It must pass.
 2. Make `Prng::below(n)` unbiased, and make it panic on `n == 0`. Build `shuffle` as Fisher-Yates, the standard unbiased shuffle, on top of `below`. Make `fork` derive a child from `next_u64`.
-3. Make `Trace::record` hash the formatted line plus a newline with FNV-1a 64-bit. Store the line unless the trace is `hash_only`. The known-answer test, a test with a fixed expected output, pins the algorithm. The FNV-1a hash of the single byte `a` is `0xaf63dc4c8601ec8c`.
+3. Make `Trace::record` hash the formatted line plus a newline with FNV-1a 64-bit. Store the line unless the trace is `hash_only`. Write a known-answer test, a test with a fixed expected output, to pin the algorithm. The FNV-1a hash of the single byte `a` is `0xaf63dc4c8601ec8c`.
 4. Make `Trace::first_divergence` return the index and both lines of the first difference. Past the end of the shorter trace, either line can be `None`.
 5. Make `check_determinism(seed, runs, program)` run the closure `runs` times, with a fresh `Prng` and `Trace` each time. Compare each run to the first. Return the hash, or a `Divergence` that names the first differing line. Make `run_twice` the two-run case.
 6. Make the `Display` of `Divergence` print the seed, both hashes, and both versions of the first differing line.

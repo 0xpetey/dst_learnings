@@ -69,7 +69,7 @@ reply at 7 ms         None                 cancel it
 timer fires @ 100 ms  Some(300 ms)         schedule ClientTimer @ 300 ms
 ```
 
-The `sim::Timer` helper does exactly this. After every input to the client, the world calls `reconcile` with the client's current deadline. If the deadline is the one that is armed, nothing happens. If it changed, the helper cancels the old event and schedules the new one. This is better than "schedule on submit, cancel on reply", because the backoff rule lives in the client and nowhere else. The simulator asks. It does not guess. The same helper serves a node's heartbeat in Module 5 and an election timeout in Module 10.
+The `sim::Timer` helper does exactly this. After every input to the client, the world calls `reconcile` with the client's current deadline. If the deadline is the one that is armed, nothing happens. If it changed, the helper cancels the old event and schedules the new one. This is better than "schedule on submit, cancel on reply", because the backoff rule lives in the client and nowhere else. The simulator asks. It does not guess. The same helper serves a node's heartbeat in Module 5 and a view-change timeout in Module 10.
 
 ### Everything is an event
 
@@ -104,7 +104,7 @@ This project uses the event model. The decision is recorded at the end of this l
 
 Some bugs need many expirations before they show. A backoff that reaches its cap only after ten retries. A counter of milliseconds in a `u32` that wraps after 49.7 days. A lease that expires in the same instant as the heartbeat that renews it. Under real time, a test that waits a year is not a test. Under virtual time it is half a million events.
 
-The reference solution runs two simulated years of a retrying client in about two seconds in a debug build. A release build takes under half a second. That is more than one hundred million times real time. The number is not comparable to the figures in Module 0, which come from a full cluster with a storage model and a consensus protocol. In this world, each event is one heap pop and a few trace lines. The point is the shape of the cost, not the constant. A simulator that never sleeps is bounded by the number of events, and you choose how many events a year contains.
+The reference solution runs one simulated year of a retrying client twice, because the determinism check needs two runs. The two years take about two seconds in a debug build. A release build takes under half a second. That is more than one hundred million times real time. The number is not comparable to the figures in Module 0, which come from a full cluster with a storage model and a consensus protocol. In this world, each event is one heap pop and a few trace lines. The point is the shape of the cost, not the constant. A simulator that never sleeps is bounded by the number of events, and you choose how many events a year contains.
 
 The trace is where the time goes. With `keep_trace_lines` on, the world stores a `String` per line. The one-year test turns it off and keeps only the running hash, which is what the determinism check compares anyway.
 
@@ -181,7 +181,7 @@ Start from your Module 3 workspace, or from `solutions/03-rust-hazards/`. The ac
    - On delivery: `{now} net deliver request client={id} id={rid}` and `{now} net deliver reply client={id} id={rid}`.
    - When `drop_replies` drops a reply: `{now} net dropped reply client={id} id={rid}`.
    - When an append becomes durable: `{now} disk complete`.
-10. Port the Module 2 tests to the new API as `fake_world.rs`. The seeded workload now draws its world seed and jitter from the test's `Prng`. The fingerprint for seed 1 is `0xd982_fd72_6e9e_453a`.
+10. Port the Module 2 tests to the new API as `fake_world.rs`. The seeded workload now draws its world seed from the test's `Prng`, with 5 ms of network jitter and 20 ms of disk jitter. The fingerprint for seed 1 is `0xd982_fd72_6e9e_453a`.
 11. Add the `sim` crate to the bare-metal check in `scripts/check.sh`.
 
 ### Acceptance criteria
@@ -211,7 +211,7 @@ Keep a `BTreeSet<u64>` of live sequence numbers next to the heap. `schedule` ins
 </details>
 
 <details>
-<summary>The borrow checker in `route`</summary>
+<summary>The borrow checker in the routing loop</summary>
 
 The `drain` loop borrows `self` for its whole body. The body also needs `&mut self` to schedule. Replace the drain with `std::mem::take(&mut self.client_out)` and iterate the owned `Vec`.
 
@@ -242,7 +242,7 @@ Set the constant to zero, run the test, and read the hash from the assertion mes
 
 1. Why must the event payload stay out of the heap key?
 2. A timer and a reply land at the same instant. Which one runs first in your scheduler, and why is "either, as long as it is always the same" the right answer?
-3. `run_for` ends with `advance_to`. Suppose it did not. What breaks?
+3. `run_until`, and so `run_for`, ends with `advance_to`. Suppose it did not. What breaks?
 4. The one-year test runs at more than one hundred million times real time. Module 0 quoted about a thousand. Which is right?
 5. The disk model schedules each completion at `max(now + latency, previous)`. What invariant does that protect, and which code asserts it?
 6. In the tick model, what happens to an event that is due 3 ms into a 10 ms tick?

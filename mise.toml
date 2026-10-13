@@ -34,7 +34,7 @@ run = [
 description = "Twenty thousand seeds of the final solution, as a batch"
 dir = "solutions/13-landscape"
 # About two minutes at eight jobs on an eight-core laptop. The last line is
-# the sweep hash, which d8cc45fc8ef93f20 pins for this toolchain and OS.
+# the sweep hash, which d8cc45fc8ef93f20 pins for this toolchain.
 run = 'cargo run --release --locked -q -p vopr -- --batch 20000 --from 0 --jobs {{option(name="jobs", default="8")}}'
 
 [tasks.hunt]

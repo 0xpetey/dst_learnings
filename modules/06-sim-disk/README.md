@@ -93,7 +93,7 @@ The sequence number says which record belongs at this offset. A write that lande
 
 The sector alignment lets recovery skip. When a record fails its check, recovery does not know how long it was. It does know that the next record starts on a sector boundary. It probes every boundary after the bad one for a valid header. That probe is the whole difference between a torn tail and a hole.
 
-The payload carries the client id and the request id. That is the bug the module found. The section after next tells the story.
+The payload carries the client id and the request id. That is the bug the module found. The section "The bug the module found" tells the story.
 
 ### Recovery: torn or damaged?
 
@@ -154,7 +154,7 @@ The fix found a second bug, in the tests this time. A world built over an old di
 
 ### Reading a trace
 
-One host, one client, a disk that tears every write it is holding at a crash. The test loses the second write by hand. Timestamps are shortened.
+One host, one client, a disk that tears every write it is holding at a crash. The test loses the second write by hand. Timestamps are shortened, and some lines are left out.
 
 ```text
 t=0        n0 out Read op=0
@@ -235,7 +235,7 @@ Start from your Module 5 workspace, or from `solutions/05-sim-network/`. The acc
 
 #### The node, in `kv_core::node`
 
-5. `Output::Halt { damage }`. On a `Damaged` log the node drops its queued requests, emits `Halt`, and answers nothing afterwards. `is_halted()`, `damage()`, `recovery() -> Option<Recovery { records, valid_len, tail }>` and `recovered_records()` are queries. `Stats` gains `dropped`.
+5. `Output::Halt { damage }`. On a `Damaged` log the node drops its queued requests, emits `Halt`, and answers nothing afterwards. `is_halted()`, `damage()`, `recovery() -> Option<Recovery { records, valid_len, tail }>` and `recovered_records()` are queries. `Recovery` is the node's copy of `log::Recovered`, with the same fields. `Stats` gains `dropped`.
 6. Recovery rebuilds the session of every record's client, so that a retry after a restart gets the same answer. `log_seq()` and `log_len()` are the records and bytes known durable. A pending append is numbered `log_seq + pending + 1`.
 7. `Driver::is_halted()` is true after `Output::Halt`, and a halted driver's `step` returns zero. The real server loop exits with an error that names the damage.
 
@@ -363,4 +363,4 @@ Set each constant to zero, run the test, and read the hash from the assertion me
 
 ## What's next
 
-The simulator now has every component that touches the outside world: a clock, a network, a disk and a process that can die. Each has a fault model, and each fault is a probability drawn from the seed. Module 7 is about turning the probabilities into a search. It adds the faults that live inside a process: pauses and clock jumps. It adds the `buggify!` macro, which lets the store itself misbehave at points the author chooses. Then it adds swarm testing, where each seed picks which faults to enable, so that no single configuration dominates the search. The disk model does not change again. Module 10 adds the fault atlas on top of it.
+The simulator now has every component that touches the outside world: a clock, a network, a disk and a process that can die. The network, the disk and the process each have a fault model, and each fault is a probability drawn from the seed. The clock gets its own in Module 7. Module 7 is about turning the probabilities into a search. It adds the faults that live inside a process: pauses and clock jumps. It adds the `buggify!` macro, which lets the store itself misbehave at points the author chooses. Then it adds swarm testing, where each seed picks which faults to enable, so that no single configuration dominates the search. The disk model does not change again. Module 10 adds the fault atlas on top of it.

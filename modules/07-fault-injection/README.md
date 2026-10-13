@@ -2,7 +2,7 @@
 
 ## Why this module exists
 
-After Module 6 the simulator has every component that touches the outside world. The clock, the network, the disk and the process each have a fault model. Each fault is a probability drawn from the seed. That is the adversary's hands. This module decides what the adversary does with them on each run.
+After Module 6 the simulator has every component that touches the outside world. The network, the disk and the process each have a fault model, and the clock is about to get one. Each fault is a probability drawn from the seed. That is the adversary's hands. This module decides what the adversary does with them on each run.
 
 Three gaps remain. The first is inside the process. A real process stops for reasons that have nothing to do with the network or the disk. The garbage collector runs. The hypervisor moves the VM. Someone sends `SIGSTOP`. Kleppmann's essay on distributed locking lists these and shows that each one breaks any protocol that measures time with a local clock. The clock itself is a component with faults. Two machines never agree on the time. When a VM wakes, its clock leaps. The second gap is in the code under test. The network model cannot make the node drop a reply, and the disk model cannot make it skip a heartbeat. FoundationDB's answer is a macro at the point of decision, `BUGGIFY`, and this module writes the Rust version. The third gap is in how a run picks its faults. Modules 5 and 6 drew every probability from a wide range on every run. Groce and colleagues showed that this is the wrong search. A run that enables everything explores less than a swarm of runs that each omit something.
 
@@ -68,7 +68,7 @@ Every host now reads its own clock, `sim::HostClock`. It is the scheduler's cloc
    n2    ────────────╱──────────────────────►  a jump: offset grows
 ```
 
-The offset is the skew. Two hosts that start at different instants read different times, and nothing in the system can compare a local instant with a remote one. Nothing does yet. Module 9's leases are the first thing that wants to, and the skew is there to catch them. The drift is the rate error, in parts per million. Real oscillators are within a few hundred ppm, and the model allows up to half a million, which is 50%. The exaggeration is on purpose, and the next section says how much of it is useful. The jump is a forward step. A hypervisor paused the guest, or the kernel caught up with a missed interrupt. Jumps are only forward. `Instant` models a monotonic clock, and a monotonic clock that steps backwards is a hardware bug the core is allowed to assert against.
+The offset is the skew. Two hosts that start at different instants read different times, and nothing in the system can compare a local instant with a remote one. Nothing does yet. Module 10's planted lease is the first thing that wants to, and the skew is there to catch it. The drift is the rate error, in parts per million. Real oscillators are within a few hundred ppm, and the model allows up to half a million, which is 50%. The exaggeration is on purpose, and the next section says how much of it is useful. The jump is a forward step. A hypervisor paused the guest, or the kernel caught up with a missed interrupt. Jumps are only forward. `Instant` models a monotonic clock, and a monotonic clock that steps backwards is a hardware bug the core is allowed to assert against.
 
 The process reads the host's clock, and nothing else does. The disk and the network keep true time, because a device does not care what the kernel believes. The world converts in one place. The heartbeat reports its next deadline on its own clock, and `arm_host_timer` schedules the event at `clock.to_true(deadline)`. That function returns the earliest true instant at which the clock reads the deadline or later. A jump moves deadlines into the past. `jump_clock` therefore ticks the heartbeat at once, and every deadline inside the leap comes due together.
 
@@ -86,7 +86,7 @@ The heartbeat has a margin. It beats every 100 ms and suspects a peer after 350 
 | Jump of 400 ms | Everyone silent for 400 ms, two `Down` at once, two `Up` within a round | Nothing. The jump is inside one host |
 | Jump of 200 ms | Nothing. The margin is 350 ms | Nothing |
 | Drift of 20% | Nothing. 350 ms of its time is 292 ms of wall time, and beats are 100 ms apart | Its beats arrive every 83 ms, which is early and harmless |
-| Drift of 50% against a peer at minus 50% | Nothing. Its margin is 233 ms of wall time, and the slow peer beats every 150 ms | Nothing |
+| Drift of 50% against a peer at minus 50% | Nothing. Its margin is 233 ms of wall time, and the slow peer beats every 200 ms | Nothing |
 | Half of all beats skipped | Three skipped in a row is one chance in eight, so some runs of silence cross the margin | `Down`, then `Up` on the next beat, every time |
 
 The lesson of the table is that drift alone cannot eat a margin of three and a half intervals. The simulator's 50% is far beyond any real oscillator and it still finds nothing here. The jump finds something at once, because a jump is a pause from the inside. The process reads the clock before and after and sees the same gap, whether the world moved or not. The realistic faults are the pause and the jump. The drift is there for the protocols of Modules 9 and 10, which compare durations across hosts.
@@ -109,9 +109,9 @@ if crate::buggify!(self.buggify, Site::DropReply) {
 
 Four sites earn their place in this module. `DropRequest` sits at the top of `Node::on_request`, before anything is counted or recorded, so a dropped request leaves no trace in the node. `DropReply` and `DuplicateReply` sit in one `reply` function that every reply goes through. A dropped reply is answered from the session on the retry. A duplicate reply has to be ignored by the client. `SkipBeat` sits in the heartbeat's tick, and a skipped round sends nothing and takes no sequence number. Each site is a fault the protocol is supposed to survive. Each one makes sure that the surviving code runs on half the seeds instead of never.
 
-One site from the syllabus is missing on purpose. "Delay an fsync" is a `wait(delay(5))` in FoundationDB, and there is no delay inside a sans-I/O state machine. Time belongs to the environment. The disk model's latency range is the fsync delay, and the slow host of the next section is the fsync that is always slow. A fault point in the core decides, and the environment delays.
+One site FoundationDB's article suggests is missing on purpose. "Delay an fsync" is a `wait(delay(5))` in FoundationDB, and there is no delay inside a sans-I/O state machine. Time belongs to the environment. The disk model's latency range is the fsync delay, and the slow host of the next section is the fsync that is always slow. A fault point in the core decides, and the environment delays.
 
-`grep -rn 'buggify!' crates/kv-core/src` lists every fault point. That is the whole discovery mechanism, and it is the same one FoundationDB has. The names are the documentation, and a site that nobody can explain in one line is a site to remove.
+`grep -rn 'crate::buggify!' crates/kv-core/src` lists every fault point. That is the whole discovery mechanism, and it is the same one FoundationDB has. The names are the documentation, and a site that nobody can explain in one line is a site to remove.
 
 ### Swarm testing
 
@@ -157,7 +157,7 @@ t=0ns config drawn: slow_host=n2 buggify_sites=[drop_reply skip_beat]
 
 The first line is what the run was given. The second is what the seed drew from it, which is the information a reader needs and the configuration alone does not carry. Which host has the slow disk, what each host's clock skew is, which sites are enabled. A failing seed is readable before its first event. This is the syllabus requirement, and it is also TigerBeetle's practice. The VOPR prints every option it drew, under a `SEED=` header, before the first tick.
 
-Every fingerprint changed because of these two lines, and the change is on purpose.
+Every fingerprint changed because of these two lines, and because `Chance::roll` now spends no randomness on `NEVER` and `ALWAYS`. The change is on purpose.
 
 ### Reading a trace
 
@@ -209,7 +209,7 @@ FoundationDB has `BUGGIFY` in the code and fewer knobs in the environment. Its s
 - There is no delay site in the core. Time belongs to the environment.
 - The swarm is eight families, each on by a coin, drawn in a fixed order. A family that is off spends no randomness.
 - `stop_faults` is the one call that starts the quiet period. Drift and offsets stay, because they are not faults a cluster recovers from.
-- The configuration and the per-run draws are the first two trace lines. All four fingerprints changed on purpose.
+- The configuration and the per-run draws are the first two trace lines. The three older fingerprints changed on purpose, and the swarm run adds a fourth.
 
 ## Readings
 
@@ -366,7 +366,7 @@ Set each constant to zero, run the test, and read the hash from the assertion me
 
 1. A restarted process counts beats from one again, so its first beats are stragglers to its peers. A resumed process continues its sequence, so there are none. A restarted node read its disk and rebuilt its sessions. A resumed node still has its in-memory state, including requests it read and did not answer yet.
 2. After every input, the heartbeat asserts that its next beat is in the future. A beat fed at a time past the next beat breaks that. The tick advances the schedule. In between, the paused node marks every peer `Down`. Its own clock says that they were silent for the length of the pause.
-3. Nothing in the system compares a duration measured on one host with a duration measured on another. Module 9's leases and Module 10's election timeouts do. The drift is the test for them, and it costs nothing until they arrive.
+3. Nothing in the system compares a duration measured on one host with a duration measured on another. Module 10's view-change timeouts and its planted lease do. The drift is the test for them, and it costs nothing until they arrive.
 4. In a pause the world moved on without the process. Peers suspected it, requests queued, and disk writes completed. In a jump only the host's clock moved, and the peers saw nothing. The `resume` line carries `held_beats=`, and the `clock jump` line carries only `by=` and `local=`.
 5. Each site is enabled with 25% probability once per run, and an enabled site fires with 25% probability each time it is reached. If every site is always enabled, every run exercises the same mix of unusual paths. A site that masks another's bug masks it on every seed, which is the problem swarm testing exists to fix.
 6. A `cfg` in a macro body is evaluated in the crate that expands the macro, against that crate's feature set. The gate goes on the `fire` method in `kv-core`, with two definitions of `Buggify` selected by the feature.

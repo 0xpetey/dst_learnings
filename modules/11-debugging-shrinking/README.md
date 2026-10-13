@@ -35,7 +35,7 @@ So every tool that runs more than one seed spawns children. The child is this sa
 
 `vopr --seeds A..B` stops at the first failure. For a sweep that is right. The first bug is the one to fix, and the rest wait. For a planted bug it is wrong. The question is how many seeds catch it, and which, and the answer needs every seed to run. `vopr --hunt A..B` runs each seed in its own process and goes on past the failures. At the end it lists each one with its signature and its reproduction, and exits non-zero.
 
-A child process per seed costs something. The hunt runs about seventy seeds a second in release, against ninety in one process. Twenty thousand seeds under the forgotten promise took about five minutes and found two: seed 9916 and seed 16345. That rate is the reason Module 10's lesson said a hunt that finds nothing is the usual first result. Two in twenty thousand means a hunt of a thousand sees nothing nineteen times in twenty.
+A child process per seed costs something. The hunt runs about seventy seeds a second in release, against ninety in one process. Twenty thousand seeds under the forgotten promise took about five minutes and found two: seed 9916 and seed 16345. That rate is why a hunt that finds nothing is the usual first result, as Module 10's lease hunt showed. Two in twenty thousand means a hunt of a thousand sees nothing nineteen times in twenty.
 
 ### Overrides
 
@@ -47,7 +47,7 @@ A seed has no neighbours. Seed 563 says nothing about seed 562, because the firs
 cargo run --release -p vopr -- --seed 9916 --requests 57 --nodes 3 --no-core --bugs forgotten_promise
 ```
 
-Each `--no-` flag means what the swarm's coin means by off. `--no-disk` is the default disk, and `--no-net` is the default network. A shrunk configuration is therefore one the swarm itself reaches, and a bug under it is a bug the swarm finds.
+Each `--no-` flag means what the swarm's coin means by off. `--no-disk` is the fault-free disk of a swarm coin that said off, and `--no-net` is the fault-free network. A shrunk configuration is therefore one the swarm itself reaches, and a bug under it is a bug the swarm finds.
 
 ### The shrinker
 
@@ -68,6 +68,15 @@ The first version of the signature kept the whole line. The shrink of seed 2 und
 Seed 2 under the stale read after step-down, from the default draws. Twenty-one runs. One hundred and fifty requests became thirty, two clients per node became one, and the core went. Partitions and crashes stayed, and turning either off made the run pass. That is the bug's shape in one line: a view change with the old primary alive, and one client to read from it.
 
 Seed 9916 under the forgotten promise, from three nodes and no core. Twenty-six runs. One hundred and fifty requests became fifty-seven and nothing else was kept. Every family off made the run pass, and so did every rate. That result says something too. The failure is a rare interleaving, and turning any family off reshuffles the dice of every family after it, so the interleaving is gone. The shrinker cannot tell "this family is needed" from "this family's dice are needed". Hypothesis can, because it shrinks the choices and leaves unrelated draws in place. The stretch goal that gives each family its own stream from the seed is the way to find out which families seed 9916 needs.
+
+The report, as the shrinker prints it after the attempts:
+
+```text
+shrunk seed 9916 in 26 runs: 5 of 23 changes kept
+  failure: node 0 view 21: told to truncate record 17, committed through 17
+  from: cargo run --release -p vopr -- --seed 9916 --nodes 3 --no-core --bugs forgotten_promise
+  to:   cargo run --release -p vopr -- --seed 9916 --requests 57 --nodes 3 --no-core --bugs forgotten_promise
+```
 
 ### The inspector
 
@@ -113,11 +122,11 @@ Antithesis runs whole systems under a deterministic hypervisor and calls its deb
 
 ### How TigerBeetle does it
 
-`src/vopr.zig` takes the seed and four overrides. `--lite` runs a small three-replica cluster and checks only for crashes. `--packet-loss-ratio` and `--requests-max` do what they say, and `--replica-missing` keeps a replica down. Those are this module's knobs, by hand. A liveness failure logs the final cluster state, which is `describe_cluster` here, and prints the seed to reproduce with. A build option, `-vopr-log=short`, prints only state transitions, which is the `status` lines of this trace. A shrinker is not in the tree, as far as it shows. `docs/internals/vopr.md` links a video in which a maintainer reads a real failure live, and that is the best reading on the craft.
+`src/vopr.zig` takes the seed and four overrides. `--lite` runs a small three-replica cluster and checks only for crashes. `--packet-loss-ratio` and `--requests-max` do what they say, and `--replica-missing` keeps a replica down. Those are this module's knobs, by hand. A liveness failure logs the final cluster state, which is the replica listing of the `liveness:` message here, and prints the seed to reproduce with. A build option, `-vopr-log=short`, prints only state transitions, which is the `status` lines of this trace. A shrinker is not in the tree, as far as it shows. `docs/internals/vopr.md` links a video in which a maintainer reads a real failure live, and that is the best reading on the craft.
 
 ### Decisions recorded
 
-- The panic strategy of Module 3 stands. The binary aborts, the tools spawn children, and the tests unwind. The open decision is closed.
+- The panic strategy of Module 3 stands. The binary aborts, the tools spawn children, and the tests unwind. Module 3 left open whether the tools unwind. They do not.
 - A failure's signature is its first line, cut at the first bracket, with every number blanked. The result lists every other signature it met.
 - The shrinker keeps the seed and shrinks the configuration. Each `--no-` flag means the swarm's off, so a shrunk run is a swarm run.
 - The inspector reads only the trace. A fact the trace does not carry is not shown.
@@ -187,7 +196,7 @@ cargo run --release -p vopr -- --hunt 0..20000 --nodes 3 --no-core --bugs forgot
                                                                          # seeds 9916 and 16345, in about five minutes
 ```
 
-The last one is run by hand. The test suite runs the two seeds it found.
+The last one is run by hand. The test suite runs seed 9916.
 
 From the repository root, `mise run hunt` runs that hunt against the final reference solution. It prints only the failures and the summary. If it catches the bug, it exits non-zero. `mise run hunt --seeds 9900..10000` hunts a shorter range, and `--bugs` names another planted bug.
 
@@ -272,4 +281,4 @@ Two seeds in twenty thousand. A hunt of a thousand has one chance in ten. Run th
 
 ## What's next
 
-The three tools of this module all start from a seed that someone ran. Module 12 makes the running automatic. A batch of seeds on every push, and a sweep that never stops. A failing seed arrives in the morning as a reproduction line with its commit hash, already shrunk and checked twice. The build has to be the same binary every time for that to mean anything, and the module says what pinning it takes.
+The three tools of this module all start from a seed that someone ran. Module 12 makes the running automatic. A batch of seeds on every push, and a sweep every night. A failing seed arrives in the morning as a reproduction line with its commit hash, checked twice, and shrunk by the nightly. The build has to be the same binary every time for that to mean anything, and the module says what pinning it takes.

@@ -1,7 +1,5 @@
 # Module 0: Why deterministic simulation?
 
-Part I, Foundations. Estimated effort: 4 to 6 hours with the readings.
-
 ## Why this module exists
 
 At the end of this course you own two things. One is a replicated key-value
@@ -26,7 +24,7 @@ In this module you write a small Rust program with a race in it. A race is a
 bug that depends on the order of concurrent steps. You watch the program fail
 some fraction of the time for no visible reason. Then you write down
 everything that you need to control to make one specific failure happen on
-demand. That list is the specification for the next twelve modules.
+demand. That list is the specification for the next thirteen modules.
 
 ## Objectives
 
@@ -954,7 +952,7 @@ You now have a program that fails for reasons that you cannot set. You also
 have a list in `NOTES.md` of exactly which reasons those are. They are the
 scheduler, the clock, the order of channel delivery, and the load on the
 machine. Module 1 turns that list into a catalog. It names every source of nondeterminism that
-a program can have, in general and in Rust specifically. It introduces the
+a program can have, in general. Module 3 shows where each one hides in Rust. Module 1 introduces the
 seed as the single root from which every decision must descend. Module 1 also has you build the first piece of the course workspace. A PRNG
 is a pseudorandom number generator. A trace log is a record of each step.
 You build a seeded PRNG, a trace log, and a check that runs the same seed

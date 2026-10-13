@@ -52,7 +52,7 @@ All of these read the outside world. The order of `read_dir` depends on the file
 
 #### Memory addresses
 
-The hazards are `{:p}` formatting, `Arc::as_ptr`, `ptr::hash`, a map keyed by pointer, and a pointer mixed into an id. ASLR (address space layout randomization) moves the heap on every process start. The subtle part is that a sort by raw address survives ASLR. A slide of the whole heap preserves relative order. A hash of an address does not survive, because the slide changes every hashed value. The `pointer_order` hazard in this module shows both cases.
+The hazards are `{:p}` formatting, `Arc::as_ptr`, `ptr::hash`, a map keyed by pointer, and a pointer mixed into an id. ASLR (address space layout randomization) moves the heap on every process start. The subtle part is that a sort by raw address survives ASLR. A slide of the whole heap preserves relative order. A hash of an address does not survive, because the slide changes every hashed value. The `pointer_order` hazard in this module shows the hash case, and a comment in it explains why the sort case passes.
 
 #### Debug versus release
 
@@ -114,13 +114,13 @@ The core also declares `#![forbid(unsafe_code)]`. An inner `allow` cannot overri
 
 `no_std` is too strict everywhere outside the core. There, `clippy.toml` lists `disallowed-methods` and `disallowed-types` with a reason for each, and the workspace sets both lints to `deny`. The list bans the clocks, `thread::spawn` and `sleep`, `std::env`, `read_dir`, `rand::random` and `rand::rng`. It also bans `HashMap`, `HashSet`, `RandomState`, `Mutex`, `RwLock`, `OnceLock`, `LazyLock`, and pointer-to-integer helpers.
 
-The real environment legitimately reads the clock and sleeps. Each such site carries `#[expect(clippy::disallowed_methods, reason = "this is the real clock")]`, not `#[allow]`. If the lint stops firing, `#[expect]` fails the build, so the markers cannot rot. A `grep` for `#[expect(clippy::disallowed` lists every place where the program touches the OS.
+The real environment legitimately reads the clock and sleeps. Each such site carries `#[expect(clippy::disallowed_methods, reason = "this is the real clock")]`, or the `disallowed_types` twin, not `#[allow]`. If the lint stops firing, `#[expect]` fails the build, so the markers cannot rot. A `grep` for `#[expect(` in `kv-env` lists every lint-banned call the real environment makes.
 
-Three more lints close the pointer hole that `no_std` leaves open. `borrow_as_ptr`, `ref_as_ptr` and `ptr_as_ptr` catch a reference that turns into a pointer. That cast is the first step toward an address-derived value.
+Four more lints close the pointer hole that `no_std` leaves open. `borrow_as_ptr`, `ref_as_ptr` and `ptr_as_ptr` catch a reference that turns into a pointer. `fn_to_numeric_cast_any` catches a function that turns into a number. That cast is the first step toward an address-derived value.
 
 #### The determinism check
 
-Lints are a net, not a wall. `ptr::from_ref(x).addr()` still compiles. A dependency can still hide a clock behind a feature flag. The Module 1 check runs on every change in CI. It is the last line of defense and the only one that catches what nobody thought to ban.
+Lints are a net, not a wall. `v.as_ptr().addr()` on a `Vec` still compiles. A dependency can still hide a clock behind a feature flag. The Module 1 check runs on every change in CI. It is the last line of defense and the only one that catches what nobody thought to ban.
 
 ### Decisions recorded
 
@@ -177,7 +177,7 @@ Add a crate `hazards` with `rand` and `tokio` (`rt`, `macros`, `sync`, `time`) a
 4. Convert `kv-core` to `#![no_std]` with `extern crate alloc;`. Add `#![forbid(unsafe_code)]`, `#![deny(clippy::disallowed_methods, clippy::disallowed_types)]`, and `#![deny(clippy::borrow_as_ptr, clippy::ref_as_ptr, clippy::ptr_as_ptr, clippy::fn_to_numeric_cast_any)]`. Change every `std::` path in the crate to `core::` or `alloc::`. Make test modules import `alloc::vec`.
 5. Convert `determinism` to `#![cfg_attr(not(feature = "std"), no_std)]` with a default `std` feature. Make `harness` and the `trace_hash` binary require the feature. Make `Prng` and `Trace` build without it.
 6. Put a `clippy.toml` at the workspace root that bans at least everything in the reference file. In the workspace `Cargo.toml`, set `disallowed_methods` and `disallowed_types` to `deny` under `[workspace.lints.clippy]`. Give every crate `[lints] workspace = true`.
-7. Mark every legitimate use of a banned API in `kv-env` with `#[expect(..., reason = "...")]`. Use exactly as many markers as there are OS touch points. Do not use `#[allow]`.
+7. Mark every legitimate use of a banned API in `kv-env` with `#[expect(..., reason = "...")]`. Use exactly as many markers as there are lint-banned calls. Do not use `#[allow]`.
 8. Pin a channel in `rust-toolchain.toml` and commit `Cargo.lock`. Set `overflow-checks = true`, `debug-assertions = true` and `panic = "abort"` in the `dev` and `release` profiles.
 9. Make sure that `scripts/check.sh` passes end to end. It runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo check -p kv-core --target thumbv7em-none-eabihf`, the same for `determinism --no-default-features`, `cargo test --workspace`, and `scripts/hazard-check.sh`.
 10. Make sure that `scripts/hazard-check.sh` passes. It pastes sixteen snippets one at a time into `kv-core` and requires `cargo clippy` to fail for each. The snippets are:
@@ -193,7 +193,7 @@ Add a crate `hazards` with `rand` and `tokio` (`rt`, `macros`, `sync`, `time`) a
 rustup target add thumbv7em-none-eabihf     # once
 scripts/check.sh                            # ends with "all checks passed"
 cargo tree -p kv-core                       # kv-core alone, plus determinism as a dev-dependency
-grep -rn "#\[expect(clippy::disallowed" crates/kv-env   # one line per OS touch point
+grep -rn "#\[expect(" crates/kv-env                     # one line per lint-banned OS call
 ```
 
 From the repository root, `mise run check:project` runs the same script in your workspace. `mise run check:03` runs it in the reference solution.
@@ -263,4 +263,4 @@ The test makes eight runs of 64 coin flips each. If the check ever passes, the c
 
 ## What's next
 
-Part I is complete. You have a seed and a check, a store written as state machines, and a workspace where the core cannot reach the OS. Part II builds the simulator that those state machines run inside. Module 4 replaces the hand-advanced fake clock with a discrete-event scheduler and virtual time. It runs a year of client retries in under a second.
+Part I is complete. You have a seed and a check, a store written as state machines, and a workspace where the core cannot reach the OS. Part II builds the simulator that those state machines run inside. Module 4 replaces the hand-advanced fake clock with a discrete-event scheduler and virtual time. It runs a simulated year of client retries, twice over, in under a second.

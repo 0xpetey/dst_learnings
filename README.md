@@ -5,7 +5,7 @@ A self-paced course. You build a small replicated key-value store and the simula
 ## Start here
 
 1. Read [`CURRICULUM.md`](CURRICULUM.md) for the syllabus and the shape of the whole course.
-2. Install Rust with `rustup`. The project pins its toolchain in `project/rust-toolchain.toml`, so the right version installs itself on the first build. Module 3 also needs one extra target. Install it with `rustup target add thumbv7em-none-eabihf`.
+2. Install Rust with `rustup`. The project pins its toolchain in `project/rust-toolchain.toml`, so the right version installs itself on the first build. Module 3 and every later module also need one extra target. Install it with `rustup target add thumbv7em-none-eabihf`.
 3. Work through `modules/` in order. Each module directory has a `README.md` with the lesson, the readings, and a coding task with acceptance tests.
 4. Your code lives in `project/`. It starts as a skeleton for Module 1 and grows to eight crates by the end.
 5. If you have [mise](https://mise.jdx.dev/), `mise run check:project` runs the acceptance suite in your workspace. `mise run check:NN` runs the suite of reference solution NN, and `mise run check` runs all thirteen in order. `mise run sweep` runs the capstone's twenty thousand seeds, and `mise run hunt` hunts a planted bug through them.

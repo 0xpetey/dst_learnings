@@ -172,7 +172,6 @@ Keep the check. It runs in CI for the rest of the course.
   single-threaded event loop with explicit state machines. A driver generic
   over the environment traits rather than `dyn Trait`. The core's own
   `Instant(u64)`, because a fake clock cannot construct `std::time::Instant`.
-  A context struct instead of globals.
 - Assertions as a first-class design tool. The simulator is only as good as
   the invariants the system asserts about itself.
 
@@ -196,11 +195,11 @@ request/response protocol). Write it as a pure state machine parameterized
 over `Time`, `Network`, and `Storage` traits. Provide a real implementation
 (TCP + files + system clock) and a trivial in-memory fake. The same core logic
 must run against both. Give it a write-ahead log with torn-tail recovery and a
-length-prefixed frame codec with limits. Add sessions that answer a retry
-from memory, a retrying client state machine with backoff and a give-up, and
-an `Observer` trait. Seed a workload and pin its trace hash as the fingerprint
-that every later module keeps. Add internal assertions for every invariant
-you can state.
+length-prefixed frame codec with limits. Add sessions that answer a retry from
+memory, a retrying client state machine with backoff and a give-up, and an
+`Observer` trait. Seed a workload and pin its trace hash as the fingerprint.
+Module 3 must keep it, and every module that changes a trace line re-pins it.
+Add internal assertions for every invariant you can state.
 
 ### Module 3: How Rust and `std` fight determinism
 
@@ -298,7 +297,8 @@ discipline.
   and `hazards`. The core crate is `#![no_std]` + `alloc`, so `std::time`,
   `std::thread`, `std::fs`, `std::net`, and `std::env` do not exist. The
   `kv-env` crate has the real and simulated environments. The `hazards`
-  crate holds probes that must fail to compile. Module 4 adds `sim`.
+  crate holds the hunt's hazard and fix pairs. A script pastes probes into
+  `kv-core` that must fail to compile or fail lint. Module 4 adds `sim`.
 - Where `no_std` is too strict, use clippy's `disallowed_methods` and
   `disallowed_types` in `clippy.toml` with `#![deny(clippy::disallowed_methods,
   clippy::disallowed_types)]`. Use them to ban `Instant::now`,
@@ -388,7 +388,7 @@ a second in a release build. Its trace must show every timer firing in a determi
 
 - Model a network as a scheduler of message delivery events between in-process
   nodes.
-- Fault model: latency (with distributions), reordering, duplication, loss,
+- Fault model: latency drawn from a range, reordering, duplication, loss,
   symmetric and asymmetric partitions, and partial partitions.
 - Why "the network is just another priority queue" and how to keep it
   deterministic.
@@ -401,8 +401,8 @@ a second in a release build. Its trace must show every timer firing in a determi
 - TigerBeetle source: `src/testing/packet_simulator.zig` (`PacketSimulator`
   and its options) and `src/testing/cluster/network.zig` (how replicas and
   clients get addresses).
-- FoundationDB `fdbrpc/sim2.cpp`: `Sim2Conn` and `SimClogging`, a
-  connection-level model for contrast. The FoundationDB testing docs have
+- Optional: FoundationDB `fdbrpc/sim2.cpp`: `Sim2Conn` and `SimClogging`,
+  a connection-level model for contrast. The FoundationDB testing docs have
   only one paragraph on the network.
 - `turmoil`'s network model and its `partition`/`hold`/`repair` API, as a
   Rust reference design.
@@ -553,7 +553,7 @@ and show which workload each one hides from.
 - Compose clock, network, disk, fault injection, workload, and checker into
   one simulator loop driven by a single seed.
 - The structure of a run: configure from seed, run the chaos phase for N
-  events, stop faults, run until convergence or timeout, report.
+  requests, stop faults, run until convergence or timeout, report.
 - Replication as the first real target: primary-backup with explicit failover,
   so there are genuine distributed bugs to find.
 - Reading a failing run: seed, configuration, trace, and the assertion that
@@ -561,8 +561,8 @@ and show which workload each one hides from.
 
 #### Key readings
 
-- TigerBeetle VOPR source: `src/vopr.zig`, `main` top to bottom, and the
-  overview in `docs/internals/vopr.md`.
+- TigerBeetle VOPR source: `src/vopr.zig`, `main` top to bottom. The
+  overview in `docs/internals/vopr.md` is optional.
 - matklad, "Simulation Testing For Liveness" (TigerBeetle blog, 2023): the
   view-change livelock a safety-only run cannot see, and the liveness mode.
 - Ongaro and Ousterhout, Raft, section 5.3 only: the Log Matching Property.
@@ -594,7 +594,7 @@ and the lesson tells them.
 - The classic bug classes DST finds. A backup that claims a view before it
   holds the view's log. A stale primary serving reads. A vote forgotten at a
   restart. A commit counted from a stale acknowledgement. A repair that
-  erases what a majority never had.
+  erases what a majority had committed.
 - Using the simulator as the primary development tool, not an afterthought:
   write the protocol against the simulated environment first, and keep a
   journal of every seed that fails.
@@ -679,9 +679,9 @@ instant. Use all three on the planted bug.
 - Running the simulator continuously: a batch of seeds on every push, a
   nightly sweep under a time budget, and what a fleet of long-running
   fuzzers adds to that.
-- Reporting: a failing seed as an artifact, with its record, its trace and
-  a shrunk run. Every failure is rerun twice and compared, and nothing is
-  retried into a pass.
+- Reporting: a failing seed as an artifact, with its record, its trace and,
+  from the nightly, a shrunk run. Every failure is rerun twice and compared,
+  and nothing is retried into a pass.
 - Deterministic builds and why reproduction requires the same binary: a
   pinned toolchain, a committed lockfile and `--locked`, and one profile
   for debug and release. The trace agrees across two operating systems
@@ -763,7 +763,7 @@ The numbers. What to do differently.
 By the end, your repository contains a replicated, consensus-based KV store
 and a VOPR-style simulator. The simulator ran the store through tens of
 thousands of seeded runs under network and storage faults. Twenty thousand
-seeds pass clean in under two minutes. You recorded every
+seeds pass clean in under two minutes at eight jobs. You recorded every
 discovered bug as a reproducible seed. The retrospective from Module 13 is
 the written deliverable.
 

@@ -107,7 +107,7 @@ Each host runs a second state machine next to its KV node. `Heartbeat` sends `Be
 
 The receiver counts two things that only a faulty network produces. A beat whose `seq` it has already seen is a duplicate. A beat whose `seq` is below one it has seen is a straggler. Both still count as evidence that the peer is alive. The counters appear in the stats, so a test can show that the network did what the seed asked, from the inside.
 
-Chandra and Toueg named the two properties of a failure detector. Completeness says that a crashed process is eventually suspected. Accuracy says that a correct process is not. This detector is complete and not accurate. A partitioned peer is suspected after `suspect_after`. A peer behind a slow link is suspected too, and that is a false suspicion. A slow message and a dead sender look the same, so perfect accuracy is impossible. The detector does not try. The constraint it does need is `suspect_after > interval`, which the constructor asserts. The acceptance test with heavy duplication and reordering shows the arithmetic. A beat is at most 205 ms late, the next one is at least 101 ms behind it, so the longest silence is 304 ms. That is under 350 ms, and no node flaps.
+Chandra and Toueg named the two properties of a failure detector. Completeness says that a crashed process is eventually suspected. Accuracy says that a correct process is not. This detector is complete and not accurate. A partitioned peer is suspected after `suspect_after`. A peer behind a slow link is suspected too, and that is a false suspicion. A slow message and a dead sender look the same, so perfect accuracy is impossible. The detector does not try. The constraint it does need is `suspect_after > interval`, which the constructor asserts. The acceptance test with heavy duplication and reordering shows the arithmetic. A beat arrives as early as 1 ms after it is sent. The next beat is sent 100 ms later and arrives as late as 205 ms after that, so the longest silence is 304 ms. That is under 350 ms, and no node flaps.
 
 A node keeps beating at a peer it suspects. If it stopped, that side never notices a healed partition.
 
@@ -197,7 +197,7 @@ Start from your Module 4 workspace, or from `solutions/04-virtual-time/`. The ac
 
 1. Add `determinism` to `sim` with `default-features = false`. The crate stays `no_std` and still builds for `thumbv7em-none-eabihf`.
 2. `Chance` is a probability as `num / den`. It has `new`, `percent`, `NEVER`, `ALWAYS`, `is_never`, `roll(&mut Prng) -> bool` and a `Display` of the form `1/4`.
-3. `NetConfig` has public fields `latency_min`, `latency_max`, `loss`, `duplicate`, `reorder` and `reorder_delay_max`. `reliable(latency)` is constant latency and no faults. `random(&mut Prng)` draws a configuration in a fixed order. `latency_min` is 0 to 4 ms and `latency_max` is at most 50 ms above it. `loss` and `reorder` are below 20 percent, `duplicate` is below 10 percent, and `reorder_delay_max` is 10 to 199 ms. `validate` panics with a message that contains `latency_min` on an inverted range. `Default` is `reliable(1 ms)`.
+3. `NetConfig` has public fields `latency_min`, `latency_max`, `loss`, `duplicate`, `reorder` and `reorder_delay_max`. `reliable(latency)` is constant latency and no faults. `random(&mut Prng)` draws a configuration in a fixed order. `latency_min` is 0 to 4 ms and `latency_max` is 0 to 49 ms above it. `loss` and `reorder` are below 20 percent, `duplicate` is below 10 percent, and `reorder_delay_max` is 10 to 199 ms. `validate` panics with a message that contains `latency_min` on an inverted range. `Default` is `reliable(1 ms)`.
 4. `MessageId` displays as `m{n}`. `Delivery` has public `id`, `at` and `copy`. `Dropped::{Partition, Loss}` display as `partition` and `loss`.
 5. `Net<A>` for any `A: Copy + Ord + Debug`:
    - `new(NetConfig)`, `config()`, `set_config(NetConfig)`, `stats() -> NetStats`, `in_flight() -> usize`.
@@ -266,7 +266,7 @@ The outbox lives inside a host and `transmit` needs `&mut self`. Drain the outbo
 <details>
 <summary>Idle means no client work</summary>
 
-Heartbeats never stop, so "until the queue is empty" never returns in a cluster. Count the scheduled `Deliver` events that carry a request or a reply. Increment the count at scheduling time. Decrement it at firing time, whether or not `deliver` accepts the copy. When that count is zero, every client is idle and no host has an append pending, the world is idle.
+Heartbeats never stop, so "until the queue is empty" never returns in a cluster. Count the scheduled `Deliver` events that carry a request or a reply. Increment the count at scheduling time. Decrement it at firing time, whether or not `deliver` accepts the copy. An idle world has that count at zero, no client with a request in flight, and no host with an append pending.
 
 </details>
 

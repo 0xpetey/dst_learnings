@@ -30,7 +30,7 @@ TigerBeetle's advice on fuzzers in CI is the same idea in two sentences. Each CI
 
 TigerBeetle's orchestrator draws a random seed for every run and records it with the commit. FoundationDB's TestHarness2 does the same. Random seeds are fine on one condition: every seed is written down. The hash does the writing down here. The batch's summary and every record carry the commit too, so nothing depends on a log line surviving.
 
-The regression seeds are the other end of the scale. Seed 36, seed 4668, seed 562 and the rest are run on every push, forever, under the overrides of the day they were found. They live in the tests, not in the batch, because the batch moves on.
+The regression seeds are the other end of the scale. Seed 36, seed 562 and the rest are run on every push, forever, under the overrides of the day they were found. They live in the tests, not in the batch, because the batch moves on.
 
 ### Flake-free by construction
 
@@ -284,7 +284,7 @@ Start from your Module 11 workspace, or from `solutions/11-debugging-shrinking/`
 #### The binary and the scripts
 
 11. `vopr --batch COUNT [--from N] [--commit SHA] [--jobs J] [--for D] [--shrink] [--report DIR] [--max-events N] [--max-steps N] [overrides]`. The seeds start at `--from`, or where the commit's hash says. The commit is recorded either way. A batch that names neither is a usage error. The progress lines and the exit status are as the lesson shows.
-12. `scripts/check.sh` carries `--locked` on every cargo command and compares seed 1's hash in debug and release. After the sweep it runs the first two hundred seeds as a batch at four jobs.
+12. `scripts/check.sh` carries `--locked` on every cargo command and compares seed 1's hash in debug and release. After the shrink it runs the same two hundred seeds as a batch at four jobs, and the two hashes have to be equal.
 13. The three workflows of the lesson, under `.github/workflows/`.
 14. The one wall clock is `batch::Stopwatch`, and clippy stays at `-D warnings`.
 15. The fingerprints do not change. Seed 1 of `RunConfig::from_seed(1, 150)` is still `0xcc45_30a4_8c93_496b`.

@@ -13,8 +13,8 @@ The last part of the course steps back from the code. Deterministic simulation f
 - Place the simulators in four shapes. One is written around a sans-I/O core. One is a runtime swapped in under existing async code. One is a hypervisor that makes a whole machine deterministic. One is a model checker for thread interleavings.
 - Port the replica onto turmoil with no change to the core, and say what the port needed: a disk turmoil does not have, a wire format the fake network never asked for, and a wait that does not use `select!`.
 - Compare the two simulators with numbers from the same replica: seeds per second, virtual time per second, and what each one found.
-- Name what DST cannot find: the fidelity gap, performance regressions, hardware and kernel behaviour, bugs in the real environment, and bugs in the oracle.
-- Say what covers each gap: real-cluster testing, fuzzing, formal specification, and assertions kept on in production.
+- Name what DST cannot find: the fidelity gap, performance regressions, compiler and kernel behaviour, bugs in the real environment, and bugs in the oracle.
+- Say what covers each gap: real-cluster testing, fuzzing, formal specification, assertions kept on in production, and a hypervisor.
 - Write the retrospective.
 
 ## Lesson
@@ -71,6 +71,7 @@ The driver is synchronous. It steps on request and polls its environment. An asy
 ```rust
 loop {
     driver.step();
+    // snapshot the replica here, for the checks at the end of the run
     if driver.is_halted() {
         return Err(format!("n{node} halted: {damage}").into());
     }
@@ -98,7 +99,7 @@ Two things, and neither is what you expect.
 
 The first was in the real environment. Seeds 34 and 42 failed with a client that gave up in the quiet phase. The trace showed replicas going into `repairing` and `erasing` after every bounce. A bounce loses nothing in this port, so a hole in the log had no business being there. The port's first `SharedStorage` copied `FileStorage` from `kv_env::real`. That code writes at the replica's offset and then cuts the file at the end of the write. Module 10 put the superblock at offset zero. So every promise written to the superblock erased the whole log behind it. The fake disk of Module 6 never cut anything, so twenty thousand seeds of the VOPR never saw it. The real server runs a cluster of one. A cluster of one writes its superblock once, before any record, so the restart test of Module 2 never saw it either. A three-node cluster over real TCP, the Module 9 stretch goal, loses its log at its first view change. The fix is one line removed from `real.rs`. A test in `kv-env` now writes at a lower offset and reads the bytes past it back.
 
-That bug was in the code the simulator does not run. `real.rs` is the least tested file in the workspace, and it is the file production runs. The port found the bug because its storage copied the real one. Nothing about turmoil found it. The lesson is about what a simulation covers, and it is the first entry in the retrospective.
+That bug was in the code the simulator does not run. `real.rs` is the least tested file in the workspace, and it is the file production runs. The port found the bug because its storage copied the real one. Nothing about turmoil found it. The lesson is about what a simulation covers, and the retrospective gives it a paragraph of its own in part 2.
 
 The second was a view change with no fault. Seed 3 draws a latency of up to nine milliseconds and no partitions, holds or crashes, and its report says five view changes. The trace shows why. Node 0 sends its first beat at time zero, while it is still reading its disk. The beat takes six milliseconds to reach node 4. In those six milliseconds node 0 reads its empty disk, gathers the view, and starts it. Node 4 becomes a backup under the `StartView`, and then the old beat arrives, saying `reading`. Module 10's rule for a backup whose primary is reading its disk is that the primary restarted, and node 4 starts a view change. A first beat that arrives after the view it belongs to is a start read as a restart.
 
@@ -123,7 +124,7 @@ trace_hash=c1065db4e0bc1e36
 
 Nine partitions in twenty seconds gave twenty-five view changes and nine promotions, and every one of the three hundred and sixty requests was answered. The cost line is in ticks, because that is the unit turmoil has.
 
-The same replica, one hundred seeds each, in release on one core. The VOPR runs three hundred requests per seed. The port runs three hundred requests in a chaos phase of twenty virtual seconds. Then it settles for five seconds and runs sixty requests that must all complete.
+The same replica, one hundred seeds each, in release on one core. The VOPR runs three hundred requests per seed, with `--requests 300`. The port's `--requests` counts per client, so `--requests 50` with six clients is also three hundred, in a chaos phase of twenty virtual seconds. Then it settles for five seconds and runs sixty requests that must all complete.
 
 | | VOPR | turmoil port |
 |---|---|---|
@@ -180,7 +181,7 @@ The written deliverable is a retrospective on your simulator. `solutions/13-land
 
 1. What the simulator models, in a table: the clock, the network, the disk, the hosts, the code's fault points, and the oracle. One row per model, with the decision it rests on and the module that made it.
 2. What each model leaves out, next to the real behaviour it leaves out, and what covers the gap.
-3. The journal: every bug the simulator found, from Module 6's lost acknowledgement to Module 10's fifteen entries, and the three classes they fall into.
+3. The journal: every bug a simulator found, from Module 6's first seed to what the port found in Module 13, and the three classes they fall into.
 4. What the port found, and what that says about the simulator.
 5. The numbers: seeds per second, virtual time per second, the cost of a seed in the seed's units, and the ceiling.
 6. What you want to do differently next time, with the reason.
@@ -336,7 +337,7 @@ Run the seed with `--trace` and grep the `status` and `fault` lines. A replica t
 4. The port found a bug in `real.rs`. Why did twenty thousand seeds of the VOPR not find it, and what does that say about what a simulator tests?
 5. Seed 3 of the port shows five view changes with no fault. Did turmoil find a bug the VOPR missed? Say what the VOPR shows under the same conditions.
 6. The port runs fourteen times slower per seed. Where does the time go, and why is that the price of a general runtime?
-7. Name four things DST cannot find, and the tool that covers each.
+7. Name five things DST cannot find, and the tool that covers each.
 8. Why is the oracle outside what the simulator can check, and what is the one check on it that this course has?
 
 <details>

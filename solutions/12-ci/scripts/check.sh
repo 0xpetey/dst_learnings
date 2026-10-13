@@ -44,7 +44,8 @@ echo "== the simulator, two hundred seeds"
 # A seed that fails prints its configuration and the assertion that fired.
 # Rerun it alone with `cargo run --release -p vopr -- --seed N --trace`,
 # and shrink it with `cargo run --release -p vopr -- --shrink --seed N`.
-cargo run --release --locked -q -p vopr -- --seeds 0..200 | tail -1
+sweep=$(cargo run --release --locked -q -p vopr -- --seeds 0..200 | tail -1)
+echo "$sweep"
 
 echo "== the shrinker, on the planted Module 10 bug"
 # Seed 9916 restarts a replica without its view promise. The shrinker
@@ -53,7 +54,9 @@ cargo run --release --locked -q -p vopr -- --shrink --seed 9916 --nodes 3 --no-c
 
 echo "== the batch, as CI runs it"
 # The same two hundred seeds, four at a time in child processes, under
-# the cost ceiling. The sweep hash has to match the line above.
-cargo run --release --locked -q -p vopr -- --batch 200 --from 0 --jobs 4 | tail -4
+# the cost ceiling. The sweep hash has to equal the one-process hash.
+batch=$(cargo run --release --locked -q -p vopr -- --batch 200 --from 0 --jobs 4 | tail -4)
+echo "$batch"
+test "${sweep#trace_hash=}" = "$(echo "$batch" | tail -1 | sed 's/^sweep_hash=//')"
 
 echo "== all checks passed"
