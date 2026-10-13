@@ -188,7 +188,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 1 workspace, or from `solutions/01-determinism/`. Add two crates: `kv-core` and `kv-env`. The acceptance tests are in `modules/02-architecture/tests/`. Copy `fake_world.rs` and `real_server.rs` into `kv-env/tests/`. These tests fix the public API that they use. The requirements list that API.
+Start from your Module 1 workspace, or from `solutions/01-determinism/`. Add two crates: `kv-core` and `kv-env`. The acceptance tests are in `modules/02-architecture/tests/`. Copy `fake_world.rs` and `real_server.rs` into `kv-env/tests/`, and `scripts/check.sh` over your Module 1 copy. These tests fix the public API that they use. The requirements list that API.
 
 ### Requirements
 
@@ -222,6 +222,8 @@ cargo run --bin kv -- get 127.0.0.1:7000 greeting     # hello
 # kill the server, start it again on the same directory
 cargo run --bin kv -- get 127.0.0.1:7000 greeting     # still hello
 ```
+
+`scripts/check.sh` runs the three commands and then the restart, on a port the OS picks and in a temporary directory. It ends with "all checks passed".
 
 ### Hints
 

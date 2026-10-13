@@ -246,8 +246,8 @@ Resolve each decision before or during the module that needs it. Record the deci
 | Module | Lesson | Task spec | Reference solution | Notes |
 |---|---|---|---|---|
 | 00 Why DST | reviewed | reviewed | n/a | Reference program lives in the lesson and `modules/00-why-dst/starter/`. Measured 68% failure rate at the defaults on an M1, and 52% to 80% across batches. |
-| 01 Determinism | reviewed | reviewed | done | `solutions/01-determinism`. Skeleton with stubs and tests in `project/`. |
-| 02 Architecture | reviewed | reviewed | done | `solutions/02-architecture`. Decided: hand-rolled event loop, own `Instant` type, generics over `dyn`. |
+| 01 Determinism | reviewed | reviewed | done | `solutions/01-determinism`. Skeleton with stubs, tests and `scripts/check.sh` in `project/`. |
+| 02 Architecture | reviewed | reviewed | done | `solutions/02-architecture`. Decided: hand-rolled event loop, own `Instant` type, generics over `dyn`. `scripts/check.sh` scripts the restart test on a free port. |
 | 03 Rust hazards | reviewed | reviewed | done | `solutions/03-rust-hazards`. Decided: ban `HashMap` type, `panic = "abort"`, `#[expect]` markers. `scripts/check.sh` is the full suite. |
 | 04 Virtual time | reviewed | reviewed | done | `solutions/04-virtual-time`. New crate `sim` (scheduler, clock, timer). Decided: event queue, not ticks. Fingerprint changed to `0xd982_fd72_6e9e_453a`. Two simulated years in 0.4 s release, 2 s debug. |
 | 05 Sim network | reviewed | reviewed | done | `solutions/05-sim-network`. `sim::net` (fate decisions, ledger, cut links, shapes) and `kv_core::heartbeat`. World has N hosts and one address space. Decided: no queue in the network, cuts checked at send and delivery, reordering is a delay. Fingerprints `0x2fcf_d1bb_e1bb_c8ef` and `0x5dae_82b3_b044_4863`. |
