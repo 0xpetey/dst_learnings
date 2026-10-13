@@ -189,6 +189,8 @@ cargo run --release -p vopr -- --hunt 0..20000 --nodes 3 --no-core --bugs forgot
 
 The last one is run by hand. The test suite runs the two seeds it found.
 
+From the repository root, `mise run hunt` runs that hunt against the final reference solution. It prints only the failures and the summary. If it catches the bug, it exits non-zero. `mise run hunt --seeds 9900..10000` hunts a shorter range, and `--bugs` names another planted bug.
+
 ### Hints
 
 <details>

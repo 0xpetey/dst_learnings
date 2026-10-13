@@ -5,7 +5,9 @@ node = "latest"
 # another. `mise run check:NN` runs one module's. `mise run check:project`
 # runs the suite in your own workspace, with whichever scripts/check.sh you
 # copied in last. `mise run sweep` runs the capstone's twenty thousand seeds,
-# `mise run sweep --jobs 4` with four children instead of eight.
+# `mise run sweep --jobs 4` with four children instead of eight. `mise run hunt`
+# hunts the planted bug of Module 11 through the same seeds, and exits
+# non-zero when it catches it, which is the expected result.
 
 [tasks.check]
 description = "Run every reference solution's check.sh, in order"
@@ -34,6 +36,20 @@ dir = "solutions/13-landscape"
 # About two minutes at eight jobs on an eight-core laptop. The last line is
 # the sweep hash, which d8cc45fc8ef93f20 pins for this toolchain and OS.
 run = 'cargo run --release --locked -q -p vopr -- --batch 20000 --from 0 --jobs {{option(name="jobs", default="8")}}'
+
+[tasks.hunt]
+description = "Hunt a planted bug through twenty thousand seeds, one child process each"
+dir = "solutions/13-landscape"
+# `--nodes 3 --no-core` because the forgotten promise was planted before
+# those draws existed, and seeds 9916 and 16345 catch it under them. About
+# five minutes. Only the failures and the summary are printed, and the exit
+# status is the hunt's, so a caught bug is a non-zero exit.
+shell = "bash -c"
+run = '''
+set -o pipefail
+cargo run --release --locked -q -p vopr -- --hunt {{option(name="seeds", default="0..20000")}} \
+  --nodes 3 --no-core --bugs {{option(name="bugs", default="forgotten_promise")}} | grep -v " ok$"
+'''
 
 [tasks."check:project"]
 description = "Run scripts/check.sh in your own workspace"
