@@ -56,13 +56,13 @@ The chaos phase is measured in requests, not in events or ticks. A run with a sl
 
 ### Everything from the seed
 
-`RunConfig::from_seed(seed, requests)` makes one `Prng` from the seed and draws from it in a fixed order: the swarm configuration, the workload configuration, then one number that seeds the workload's own dice. The order is a contract. A draw added at the end changes no earlier seed's meaning, and a draw added in the middle changes every seed after it. The configuration line prints every draw:
+`RunConfig::from_seed(seed, requests)` makes one `Prng` from the seed and draws from it in a fixed order: the swarm configuration, the workload configuration, then one number that seeds the workload's own dice. The order is a contract. A draw added at the end changes no earlier seed's meaning, and a draw added in the middle changes every seed after it. The configuration line prints the draws:
 
 ```text
 seed=1 nodes=3 clients=6 requests=150 quiet=30 seed=14971601782005023387 net=[reliable latency=1ms] disk=[read=746µs..1.669ms write=2.993ms..22.73ms lost=10/1000 torn=5/100 misdirect=1/1000 rot=9/1000 read_fault=3/1000] heartbeat=[interval=100ms suspect_after=350ms] partitions=[every<=1.244s for<=179ms] crashes=[every<=1.759s down<=404ms] pauses=none clocks=none buggify=[enable=50/100 fire=9/100] slow_host=[disk x4] workload=[keys=20 hot=3@89/100 mix=get:4 put:4 delete:2 value<=42 think=25/100@<=187ms]
 ```
 
-The line is printed before the run starts. A run that aborts at an assertion has already said what it was. The workload is drawn here because Module 8 left it out of `WorldConfig::swarm` on purpose. The workload is not a fault, and the swarm is the fault families. The run's configuration holds both.
+The second `seed=` is the world's own, drawn by the swarm and printed as Module 7 prints it. The workload's seed is the last draw and is not printed, because the outer seed fixes it. The line is printed before the run starts. A run that aborts at an assertion has already said what it was. The workload is drawn here because Module 8 left it out of `WorldConfig::swarm` on purpose. The workload is not a fault, and the swarm is the fault families. The run's configuration holds both.
 
 ### The replica
 
@@ -122,7 +122,7 @@ safety: key "k0" is not linearizable: after 12 operations [0, 1, ..., 10, 12], n
    11 c4 id=12 Get k0          ret=t=20.911s -> Value(c4-53)
 ```
 
-A read at twenty seconds returned a value that two acknowledged writes had replaced at nine. The trace shows the log lengths in the beats. At eleven seconds two replicas had 42 records. At twelve and a half one of them reported 21. At fourteen the third reported 16. At seventeen a new primary gathered on the longest log in sight, which was 28 records, and served.
+A read at twenty seconds returned a value that two acknowledged writes had replaced at nine. The trace shows the log lengths in the beats. At eleven seconds two replicas had 42 records. At twelve and a half one of them reported 21. At fourteen the third reported 16. At seventeen a new primary gathered on the longest log in sight, and served. That log was 28 records, all the other 42-record replica kept after its own restart.
 
 A lost write is a hole that nobody sees until the next restart. At nineteen lost writes in a thousand and a hundred writes per replica, every replica has a hole somewhere. Each replica's hole is in a different place. Every restart found a hole, erased everything after it, and reported the short prefix. The records after the hole were real, and on that replica's disk, and the only copies left in anyone's memory. Three restarts in a row threw away fourteen committed writes.
 
