@@ -1,2 +1,98 @@
 [tools]
 node = "latest"
+
+# `mise run check` runs every reference solution's acceptance suite, one after
+# another. `mise run check:NN` runs one module's. `mise run check:project`
+# runs the suite in your own workspace, with whichever scripts/check.sh you
+# copied in last.
+
+[tasks.check]
+description = "Run every reference solution's check.sh, in order"
+# A list in `run` is sequential. `depends` runs in parallel, and the thread
+# tests in Module 1 and the timing lines in the sweeps want the machine to
+# themselves.
+run = [
+  "mise run check:01",
+  "mise run check:02",
+  "mise run check:03",
+  "mise run check:04",
+  "mise run check:05",
+  "mise run check:06",
+  "mise run check:07",
+  "mise run check:08",
+  "mise run check:09",
+  "mise run check:10",
+  "mise run check:11",
+  "mise run check:12",
+  "mise run check:13",
+]
+
+[tasks."check:project"]
+description = "Run scripts/check.sh in your own workspace"
+dir = "project"
+run = "scripts/check.sh"
+
+[tasks."check:01"]
+description = "Module 1: determinism"
+dir = "solutions/01-determinism"
+run = "scripts/check.sh"
+
+[tasks."check:02"]
+description = "Module 2: architecture"
+dir = "solutions/02-architecture"
+run = "scripts/check.sh"
+
+[tasks."check:03"]
+description = "Module 3: Rust hazards"
+dir = "solutions/03-rust-hazards"
+run = "scripts/check.sh"
+
+[tasks."check:04"]
+description = "Module 4: virtual time"
+dir = "solutions/04-virtual-time"
+run = "scripts/check.sh"
+
+[tasks."check:05"]
+description = "Module 5: simulated network"
+dir = "solutions/05-sim-network"
+run = "scripts/check.sh"
+
+[tasks."check:06"]
+description = "Module 6: simulated disk"
+dir = "solutions/06-sim-disk"
+run = "scripts/check.sh"
+
+[tasks."check:07"]
+description = "Module 7: fault injection"
+dir = "solutions/07-fault-injection"
+run = "scripts/check.sh"
+
+[tasks."check:08"]
+description = "Module 8: workloads and checking"
+dir = "solutions/08-workloads-checking"
+run = "scripts/check.sh"
+
+[tasks."check:09"]
+description = "Module 9: the VOPR"
+dir = "solutions/09-vopr"
+run = "scripts/check.sh"
+
+[tasks."check:10"]
+description = "Module 10: consensus"
+dir = "solutions/10-consensus"
+run = "scripts/check.sh"
+
+[tasks."check:11"]
+description = "Module 11: debugging and shrinking"
+dir = "solutions/11-debugging-shrinking"
+run = "scripts/check.sh"
+
+[tasks."check:12"]
+description = "Module 12: CI"
+dir = "solutions/12-ci"
+run = "scripts/check.sh"
+
+[tasks."check:13"]
+description = "Module 13: other simulators"
+dir = "solutions/13-landscape"
+run = "scripts/check.sh"
