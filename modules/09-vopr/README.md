@@ -201,7 +201,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 8 workspace, or from `solutions/08-workloads-checking/`. The acceptance tests and the script are in `modules/09-vopr/`. `tests/kv-env/replication.rs` is new and goes into `crates/kv-env/tests/`. `tests/vopr/vopr.rs` goes into `crates/vopr/tests/`. Five tests of Modules 4 to 8 in `tests/kv-env/` replace yours, and `virtual_time.rs` stays as it is. They were ported to the replicated store, and the lesson's last decision says how. `scripts/check.sh` replaces yours and gains a two-hundred-seed sweep at the end.
+Start from your Module 8 workspace with `dst start 09`. If you did not finish Module 8, `dst start 09 --from-solution` starts from `solutions/08-workloads-checking/` instead. The command adds `replication.rs` to `crates/kv-env/tests/` and `vopr.rs` to `crates/vopr/tests/`. It replaces five tests of Modules 4 to 8 in `crates/kv-env/tests/`, and `virtual_time.rs` stays as it is. They were ported to the replicated store, and the lesson's last decision says how. It replaces `scripts/check.sh`, which gains a two-hundred-seed sweep at the end.
 
 ### Requirements
 

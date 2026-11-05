@@ -189,7 +189,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 4 workspace, or from `solutions/04-virtual-time/`. The acceptance tests are in `modules/05-sim-network/tests/`. `sim/net.rs` goes into `crates/sim/tests/`. `kv-core/heartbeat.rs` goes into `crates/kv-core/tests/`. The three files under `kv-env/` replace `crates/kv-env/tests/fake_world.rs` and `virtual_time.rs` and add `sim_network.rs`. `scripts/check.sh` does not change.
+Start from your Module 4 workspace with `dst start 05`. If you did not finish Module 4, `dst start 05 --from-solution` starts from `solutions/04-virtual-time/` instead. The command adds `net.rs` to `crates/sim/tests/` and `heartbeat.rs` to `crates/kv-core/tests/`. In `crates/kv-env/tests/` it replaces `fake_world.rs` and `virtual_time.rs` and adds `sim_network.rs`. `scripts/check.sh` does not change.
 
 ### Requirements
 

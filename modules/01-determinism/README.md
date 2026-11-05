@@ -134,7 +134,7 @@ Optional:
 
 ### Starting point
 
-Start in `project/` at the root of this repository. It is a Cargo workspace with one crate, `determinism`, and a `scripts/check.sh`. The crate has a written public API, and its bodies are `todo!()`.
+Start in `project/` at the root of this repository. Run `dst init` once, then `dst start 01`. The directory is a Cargo workspace with one crate, `determinism`, and a `scripts/check.sh`. The crate has a written public API, and its bodies are `todo!()`.
 
 The tests in `project/crates/determinism/tests/` are the acceptance tests. They compile against this skeleton and fail. Your job is to make them pass. Do not change their contents or the public signatures.
 
@@ -165,7 +165,7 @@ cargo run --bin trace_hash -- --seed 7 --hazard address   # run twice: different
 
 Run the hazard tests twenty times in a loop. They must pass every time. If a thread test passes 19 of 20 times, your barrier or workload is too small.
 
-`scripts/check.sh` runs all of the above, including the twenty runs, and ends with "all checks passed". It adds `cargo fmt --check`. The same script is in `modules/01-determinism/scripts/`.
+`scripts/check.sh` runs all of the above, including the twenty runs, and ends with "all checks passed". It adds `cargo fmt --check`. `dst check` runs the script and prints one line per step. When every step passes, `dst next` opens Module 2.
 
 ### Hints
 

@@ -222,7 +222,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 5 workspace, or from `solutions/05-sim-network/`. The acceptance tests are in `modules/06-sim-disk/tests/`. `sim/disk.rs` goes into `crates/sim/tests/`. `kv-core/log.rs` goes into `crates/kv-core/tests/`. The four files under `kv-env/` replace `crates/kv-env/tests/fake_world.rs`, `virtual_time.rs` and `sim_network.rs` and add `sim_disk.rs`. `scripts/check.sh` does not change.
+Start from your Module 5 workspace with `dst start 06`. If you did not finish Module 5, `dst start 06 --from-solution` starts from `solutions/05-sim-network/` instead. The command adds `disk.rs` to `crates/sim/tests/` and `log.rs` to `crates/kv-core/tests/`. In `crates/kv-env/tests/` it replaces `fake_world.rs`, `virtual_time.rs` and `sim_network.rs` and adds `sim_disk.rs`. `scripts/check.sh` does not change.
 
 ### Requirements
 

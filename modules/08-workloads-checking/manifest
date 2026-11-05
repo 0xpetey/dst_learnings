@@ -1,0 +1,6 @@
+# Files that `dst start 08` copies into project/.
+# Each line is: <file in this directory> -> <path under project/>.
+scripts/check.sh -> scripts/check.sh
+tests/checker/linearize.rs -> crates/checker/tests/linearize.rs
+tests/kv-core/bugs.rs -> crates/kv-core/tests/bugs.rs
+tests/kv-env/workload.rs -> crates/kv-env/tests/workload.rs

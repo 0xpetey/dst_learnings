@@ -1,0 +1,15 @@
+# Files that `dst start 10` copies into project/.
+# Each line is: <file in this directory> -> <path under project/>,
+# or: delete <path under project/>.
+scripts/check.sh -> scripts/check.sh
+tests/kv-core/log.rs -> crates/kv-core/tests/log.rs
+tests/kv-env/consensus.rs -> crates/kv-env/tests/consensus.rs
+# consensus.rs takes the place of Module 9's replication test.
+delete crates/kv-env/tests/replication.rs
+tests/kv-env/fake_world.rs -> crates/kv-env/tests/fake_world.rs
+tests/kv-env/fault_injection.rs -> crates/kv-env/tests/fault_injection.rs
+tests/kv-env/sim_disk.rs -> crates/kv-env/tests/sim_disk.rs
+tests/kv-env/sim_network.rs -> crates/kv-env/tests/sim_network.rs
+tests/kv-env/virtual_time.rs -> crates/kv-env/tests/virtual_time.rs
+tests/kv-env/workload.rs -> crates/kv-env/tests/workload.rs
+tests/vopr/vopr.rs -> crates/vopr/tests/vopr.rs

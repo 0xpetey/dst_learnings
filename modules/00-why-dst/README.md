@@ -420,7 +420,8 @@ This task does not touch the course workspace. It is a standalone crate.
 ### Starting point
 
 Copy `modules/00-why-dst/starter/` from this repository to a working
-directory of your choice. It contains:
+directory of your choice. The course runner has no check for this module.
+When `NOTES.md` is written, `dst next` opens Module 1. The starter contains:
 
 ```
 starter/

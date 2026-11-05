@@ -120,3 +120,8 @@ run = "scripts/check.sh"
 description = "Module 13: other simulators"
 dir = "solutions/13-landscape"
 run = "scripts/check.sh"
+
+[tasks.dst]
+description = "The course runner: dst init, dst start NN, dst check, dst next"
+# Extra arguments are appended: `mise run dst start 05`.
+run = "cargo run -q --release --manifest-path tools/dst/Cargo.toml --"

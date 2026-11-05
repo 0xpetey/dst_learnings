@@ -1,0 +1,7 @@
+# Files that `dst start 12` copies into project/.
+# Each line is: <file in this directory> -> <path under project/>.
+scripts/check.sh -> scripts/check.sh
+tests/vopr/batch.rs -> crates/vopr/tests/batch.rs
+workflows/batch.yml -> .github/workflows/batch.yml
+workflows/check.yml -> .github/workflows/check.yml
+workflows/nightly.yml -> .github/workflows/nightly.yml

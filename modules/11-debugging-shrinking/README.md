@@ -152,7 +152,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 10 workspace, or from `solutions/10-consensus/`. The acceptance tests and the script are in `modules/11-debugging-shrinking/`. `tests/vopr/shrink.rs` and `tests/vopr/inspect.rs` are new. Your `tests/vopr/vopr.rs` and every earlier test stay as they are, because no trace line changes. `scripts/check.sh` gained the shrink.
+Start from your Module 10 workspace with `dst start 11`. If you did not finish Module 10, `dst start 11 --from-solution` starts from `solutions/10-consensus/` instead. The command adds `shrink.rs` and `inspect.rs` to `crates/vopr/tests/` and replaces `scripts/check.sh`, which gained the shrink. Your `vopr.rs` and every earlier test stay as they are, because no trace line changes.
 
 ### Requirements
 

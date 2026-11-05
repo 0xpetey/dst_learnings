@@ -255,7 +255,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 11 workspace, or from `solutions/11-debugging-shrinking/`. The acceptance test, the script and the workflows are in `modules/12-ci/`. `tests/vopr/batch.rs` is new. `scripts/check.sh` changed. The three workflows go under `.github/workflows/` at the root of the workspace. Every earlier test stays as it is, because no trace line changes.
+Start from your Module 11 workspace with `dst start 12`. If you did not finish Module 11, `dst start 12 --from-solution` starts from `solutions/11-debugging-shrinking/` instead. The command adds `batch.rs` to `crates/vopr/tests/`, replaces `scripts/check.sh`, and puts the three workflows under `.github/workflows/` at the root of the workspace. Every earlier test stays as it is, because no trace line changes.
 
 ### Requirements
 

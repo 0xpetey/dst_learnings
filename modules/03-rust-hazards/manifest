@@ -1,0 +1,6 @@
+# Files that `dst start 03` copies into project/.
+# Each line is: <file in this directory> -> <path under project/>.
+clippy.toml -> clippy.toml
+scripts/check.sh -> scripts/check.sh
+scripts/hazard-check.sh -> scripts/hazard-check.sh
+tests/hunt.rs -> crates/hazards/tests/hunt.rs

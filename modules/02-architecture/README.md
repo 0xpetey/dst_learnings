@@ -188,7 +188,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 1 workspace, or from `solutions/01-determinism/`. Add two crates: `kv-core` and `kv-env`. The acceptance tests are in `modules/02-architecture/tests/`. Copy `fake_world.rs` and `real_server.rs` into `kv-env/tests/`, and `scripts/check.sh` over your Module 1 copy. These tests fix the public API that they use. The requirements list that API.
+Start from your Module 1 workspace with `dst start 02`. If you did not finish Module 1, `dst start 02 --from-solution` starts from `solutions/01-determinism/` instead. The command adds `fake_world.rs` and `real_server.rs` to `crates/kv-env/tests/` and replaces `scripts/check.sh`. Add two crates: `kv-core` and `kv-env`. The tests fix the public API that they use. The requirements list that API.
 
 ### Requirements
 

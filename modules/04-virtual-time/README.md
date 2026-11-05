@@ -138,7 +138,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 3 workspace, or from `solutions/03-rust-hazards/`. The acceptance tests are in `modules/04-virtual-time/tests/`: `sim/scheduler.rs` and `sim/timer.rs` go into `crates/sim/tests/`, and `kv-env/fake_world.rs` and `kv-env/virtual_time.rs` replace and extend `crates/kv-env/tests/`. The updated `scripts/check.sh` is in `modules/04-virtual-time/scripts/`.
+Start from your Module 3 workspace with `dst start 04`. If you did not finish Module 3, `dst start 04 --from-solution` starts from `solutions/03-rust-hazards/` instead. The command adds `scheduler.rs` and `timer.rs` to `crates/sim/tests/`. In `crates/kv-env/tests/` it replaces `fake_world.rs` and adds `virtual_time.rs`. It also replaces `scripts/check.sh`.
 
 ### Requirements
 

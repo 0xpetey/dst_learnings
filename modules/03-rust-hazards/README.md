@@ -154,7 +154,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 2 workspace, or from `solutions/02-architecture/`. The acceptance tests and scripts are in `modules/03-rust-hazards/`: `tests/hunt.rs`, `scripts/check.sh`, `scripts/hazard-check.sh` and a reference `clippy.toml`.
+Start from your Module 2 workspace with `dst start 03`. If you did not finish Module 2, `dst start 03 --from-solution` starts from `solutions/02-architecture/` instead. The command adds `hunt.rs` to `crates/hazards/tests/`, replaces `scripts/check.sh`, and adds `scripts/hazard-check.sh` and a reference `clippy.toml` at the workspace root.
 
 ### Requirements
 
@@ -170,7 +170,7 @@ Add a crate `hazards` with `rand` and `tokio` (`rt`, `macros`, `sync`, `time`) a
    - `hazard_static_counter` / `fixed_static_counter`: two "nodes" that share a `static AtomicU64` versus two that each own a field.
    - `hazard_hidden_clock` / `fixed_hidden_clock`: a helper module that reads `SystemTime` internally versus one that takes `now` as a parameter.
 2. Add a binary `pointer_order`. It prints the trace hash of the pointer hazard in the Module 1 `trace_hash=` format. With `--fixed`, it prints the hash of the fix.
-3. Copy `tests/hunt.rs` into the crate. It asserts three things. `check_determinism` with eight runs catches every hazard. Every fix passes. The cross-process check catches the pointer hazard whether or not the in-process check saw it.
+3. Make `tests/hunt.rs` pass. `dst start 03` placed it in the crate. It asserts three things. `check_determinism` with eight runs catches every hazard. Every fix passes. The cross-process check catches the pointer hazard whether or not the in-process check saw it.
 
 #### Part 3: make it unreachable
 
@@ -196,7 +196,7 @@ cargo tree -p kv-core                       # kv-core alone, plus determinism as
 grep -rn "#\[expect(" crates/kv-env                     # one line per lint-banned OS call
 ```
 
-From the repository root, `mise run check:project` runs the same script in your workspace. `mise run check:03` runs it in the reference solution.
+`dst check` runs the same script in your workspace. `mise run check:03` runs it in the reference solution.
 
 The Module 2 tests still pass unchanged, including `known_seed_fingerprint`. The restructured crates must not change a single trace line.
 

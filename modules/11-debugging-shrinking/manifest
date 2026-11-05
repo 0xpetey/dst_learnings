@@ -1,0 +1,5 @@
+# Files that `dst start 11` copies into project/.
+# Each line is: <file in this directory> -> <path under project/>.
+scripts/check.sh -> scripts/check.sh
+tests/vopr/inspect.rs -> crates/vopr/tests/inspect.rs
+tests/vopr/shrink.rs -> crates/vopr/tests/shrink.rs

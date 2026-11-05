@@ -177,7 +177,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 9 workspace, or from `solutions/09-vopr/`. The acceptance tests and the script are in `modules/10-consensus/`. `tests/kv-env/consensus.rs` replaces `replication.rs`. `tests/vopr/vopr.rs` replaces yours. The six tests of Modules 4 to 9 in `tests/kv-env/` and `tests/kv-core/log.rs` replace yours: the superblock moved the log, the view change put messages on the wire, and every fingerprint changed. `scripts/check.sh` is unchanged.
+Start from your Module 9 workspace with `dst start 10`. If you did not finish Module 9, `dst start 10 --from-solution` starts from `solutions/09-vopr/` instead. The command adds `consensus.rs` to `crates/kv-env/tests/` and deletes `replication.rs`, which it takes the place of. The command replaces `vopr.rs` in `crates/vopr/tests/`, the six tests of Modules 4 to 9 in `crates/kv-env/tests/`, and `log.rs` in `crates/kv-core/tests/`. The superblock moved the log, the view change put messages on the wire, and every fingerprint changed. `scripts/check.sh` is unchanged.
 
 ### Requirements
 

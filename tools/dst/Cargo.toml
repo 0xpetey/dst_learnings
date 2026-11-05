@@ -1,0 +1,11 @@
+[package]
+name = "dst"
+version = "0.1.0"
+edition = "2021"
+description = "The course runner: dst init, dst start NN, dst check, dst next"
+publish = false
+
+[dependencies]
+
+[profile.release]
+debug = false

@@ -192,7 +192,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 7 workspace, or from `solutions/07-fault-injection/`. The acceptance tests and the script are in `modules/08-workloads-checking/`. `tests/checker/linearize.rs` goes into `crates/checker/tests/`. `tests/kv-core/bugs.rs` goes into `crates/kv-core/tests/`. `tests/kv-env/workload.rs` goes into `crates/kv-env/tests/`, next to the five tests you already have, which do not change. `scripts/check.sh` replaces yours. It adds one line, a bare-metal check of `checker`, and puts the `bugs` feature on the bare-metal check of `kv-core`.
+Start from your Module 7 workspace with `dst start 08`. If you did not finish Module 7, `dst start 08 --from-solution` starts from `solutions/07-fault-injection/` instead. The command adds `linearize.rs` to `crates/checker/tests/`, `bugs.rs` to `crates/kv-core/tests/`, and `workload.rs` to `crates/kv-env/tests/`. The five tests that you already have in `kv-env` do not change. It replaces `scripts/check.sh`. The new script adds one line, a bare-metal check of `checker`, and puts the `bugs` feature on the bare-metal check of `kv-core`.
 
 ### Requirements
 

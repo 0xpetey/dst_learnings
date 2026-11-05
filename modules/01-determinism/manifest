@@ -1,0 +1,6 @@
+# Files that `dst start 01` copies into project/.
+# Each line is: <file in this directory> -> <path under project/>.
+scripts/check.sh -> scripts/check.sh
+tests/cross_process.rs -> crates/determinism/tests/cross_process.rs
+tests/hazards.rs -> crates/determinism/tests/hazards.rs
+tests/reference_prng.rs -> crates/determinism/tests/reference_prng.rs

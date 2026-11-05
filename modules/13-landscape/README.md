@@ -224,7 +224,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 12 workspace, or from `solutions/12-ci/`. The acceptance tests are in `modules/13-landscape/tests/`. `kv-turmoil/port.rs` is new, and `kv-env/real_server.rs` gained one test. `scripts/check.sh` gained one step. Every earlier test stays as it is, because nothing in `kv-core` changes.
+Start from your Module 12 workspace with `dst start 13`. If you did not finish Module 12, `dst start 13 --from-solution` starts from `solutions/12-ci/` instead. The command adds `port.rs` to `crates/kv-turmoil/tests/` and replaces `real_server.rs` in `crates/kv-env/tests/`, which gained one test. It replaces `scripts/check.sh`, which gained one step. Every earlier test stays as it is, because nothing in `kv-core` changes.
 
 ### Requirements
 

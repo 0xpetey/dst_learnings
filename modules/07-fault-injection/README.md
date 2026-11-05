@@ -232,7 +232,7 @@ Optional:
 
 ### Starting point
 
-Start from your Module 6 workspace, or from `solutions/06-sim-disk/`. The acceptance tests and the script are in `modules/07-fault-injection/`. `tests/sim/clock.rs` goes into `crates/sim/tests/`. `tests/kv-core/buggify.rs` goes into `crates/kv-core/tests/`. The five files under `tests/kv-env/` replace the four existing integration tests of `kv-env` and add `fault_injection.rs`. `scripts/check.sh` replaces yours. It gains one line, a bare-metal check of `kv-core` with the `buggify` feature on.
+Start from your Module 6 workspace with `dst start 07`. If you did not finish Module 6, `dst start 07 --from-solution` starts from `solutions/06-sim-disk/` instead. The command adds `clock.rs` to `crates/sim/tests/` and `buggify.rs` to `crates/kv-core/tests/`. In `crates/kv-env/tests/` it replaces the four existing integration tests and adds `fault_injection.rs`. It replaces `scripts/check.sh`, which gains one line, a bare-metal check of `kv-core` with the `buggify` feature on.
 
 ### Requirements
 

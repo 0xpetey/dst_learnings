@@ -1,0 +1,5 @@
+# Files that `dst start 02` copies into project/.
+# Each line is: <file in this directory> -> <path under project/>.
+scripts/check.sh -> scripts/check.sh
+tests/fake_world.rs -> crates/kv-env/tests/fake_world.rs
+tests/real_server.rs -> crates/kv-env/tests/real_server.rs

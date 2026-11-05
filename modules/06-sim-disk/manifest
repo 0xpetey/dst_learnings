@@ -1,0 +1,8 @@
+# Files that `dst start 06` copies into project/.
+# Each line is: <file in this directory> -> <path under project/>.
+tests/kv-core/log.rs -> crates/kv-core/tests/log.rs
+tests/kv-env/fake_world.rs -> crates/kv-env/tests/fake_world.rs
+tests/kv-env/sim_disk.rs -> crates/kv-env/tests/sim_disk.rs
+tests/kv-env/sim_network.rs -> crates/kv-env/tests/sim_network.rs
+tests/kv-env/virtual_time.rs -> crates/kv-env/tests/virtual_time.rs
+tests/sim/disk.rs -> crates/sim/tests/disk.rs
