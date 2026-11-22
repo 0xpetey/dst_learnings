@@ -2,9 +2,9 @@
 
 ## Why this module exists
 
-Module 9 built a replicated store that was safe and not live. A write was answered once every disk had it, and a new primary served once every replica reported. One replica away stopped the cluster. This module pays for liveness with a majority, and finds out what a majority costs. The commit rule becomes "`f + 1` of `2f + 1`". The gather becomes a view change. The repair becomes a protocol of its own, with a hash chain and a fault atlas. Two things the earlier modules put off come due: a superblock, and a reason why every replica's disk is not the same thing as the cluster's log.
+Module 9's commit and gather needed every replica, so one replica away stopped the cluster. This module commits on a majority, `f + 1` of `2f + 1`, and finds out what a majority costs. The gather becomes a view change, and the repair gets a hash chain and a fault atlas. The superblock that earlier modules put off comes due.
 
-The simulator is the development tool here, not the afterthought. The protocol was written against it from the first line. Fifteen bugs went into the journal before the module was done, thirteen found by the sweep and two by hand. Each one is in the journal below, and each seed is a regression test. That journal is the real content of this module. The protocol itself is a few hundred lines. Knowing why each line is there is the work.
+The protocol was written against the simulator from the first line. Fifteen bugs went into the journal before the module was done, thirteen found by the sweep and two by hand. Each seed is a regression test. The protocol is a few hundred lines.
 
 ## Objectives
 
@@ -20,17 +20,15 @@ The simulator is the development tool here, not the afterthought. The protocol w
 
 ### Two of three
 
-A cluster of `n = 2f + 1` replicas tolerates `f` of them being away. Three replicas tolerate one. The arithmetic is the whole protocol. A write is committed once `f + 1` disks have it, the primary's among them. A view change needs `f + 1` replicas to agree the old primary is gone, and `f + 1` logs to choose the new one from. Any two majorities share a replica, so a committed record is always in one of the logs a new primary sees.
+A cluster of `n = 2f + 1` replicas tolerates `f` of them being away. A write is committed once `f + 1` disks have it, the primary's among them. A view change needs `f + 1` replicas to agree the old primary is gone, and `f + 1` logs to choose the new one from. Any two majorities share a replica, so a committed record is always in one of the logs a new primary sees.
 
-That sentence hides every bug in this module. "Always in one of the logs" assumes the replica that has the record still has it, still knows it has it, and says so. A disk that lost a write, a replica that forgot a vote, and a beat that arrived late each break one of those assumptions. The journal is a list of the ways.
-
-Module 9's replica already had the shapes. Views, the primary of view `v` as `v mod n`, records stamped with their view, logs summed up as runs, and the newest-log rule. Those are the shared core of Raft and Viewstamped Replication. What changes is the counting, and what the counting makes necessary.
+That assumes the shared replica still has the record, still knows it has it, and says so. A disk that lost a write, a replica that forgot a vote, and a beat that arrived late each break one of those assumptions.
 
 ### Choosing the protocol
 
-Raft or Viewstamped Replication. Raft has more implementations to compare against. VSR is what TigerBeetle runs, and it fits this code better. The primary of a view is fixed by arithmetic, so there is no election to lose. The view change is a round of messages rather than a vote. Module 9's replica was already a VSR replica with a stricter quorum. The module keeps it.
+Raft has more implementations to compare against. Viewstamped Replication, VSR, is what TigerBeetle runs, and it fits this code better. The primary of a view is fixed by arithmetic, so there is no election to lose. The view change is a round of messages rather than a vote. Module 9's replica already had the shared core of Raft and VSR: views, the `v mod n` primary, view-stamped records, runs, and the newest-log rule. It was a VSR replica with a stricter quorum, and this module keeps it.
 
-Two Raft ideas are borrowed anyway. The consistency check on a record arriving at a backup is Raft's, done with a checksum instead of a term. And the view promise on disk is Raft's `currentTerm`. VSR as published keeps the view in memory and recovers it from the others. Seed 562 is why this module does not.
+Two Raft ideas are borrowed. The consistency check on a record arriving at a backup is Raft's, done with a checksum instead of a term. The view promise on disk is Raft's `currentTerm`. VSR as published keeps the view in memory and recovers it from the others. Seed 562 is why this module does not.
 
 ### The view change
 
@@ -42,7 +40,7 @@ Three messages, from Liskov and Cowling's paper, section 4.2.
 
 The last clause is the module's own. The published protocol lets the new primary serve at once and commit the tail of the chosen log on the way. This replica builds its node from the whole log as a committed thing, so the tail must be committed first. A client whose write is in that tail gets its answer from the session the record made.
 
-Between views a replica is in `ViewChange`. Nothing it says counts. Its durable count is not of the new view's log. Its offer is for the primary only. Its beat is a vote, and to the new primary an offer, and nothing more. The new primary counts a backup's disk only once the backup reports itself a backup of the view.
+Between views a replica is in `ViewChange`. Its durable count is not of the new view's log. Its offer is for the primary only. Its beat is a vote, and to the new primary an offer, and nothing more. The new primary counts a backup's disk only once the backup reports itself a backup of the view.
 
 ```text
   n1 detector: n0 Down          n2 detector: n0 Down
@@ -61,11 +59,11 @@ Between views a replica is in `ViewChange`. Nothing it says counts. Its durable 
 
 An offer carries `log_view`, the last view the sender was normal in. A replica is normal in a view once it holds the view's log, the one the primary vouched for. From then on it appends only what that primary sends. So a log from a higher normal view contains everything a lower one committed. That is the induction the view change rests on. The first word, below, is the first message a backup hears from the view's primary.
 
-Seed 7 found the induction broken. A backup took view 17 on the primary's `StartView`, never received the records, and offered its short log as a view-17 log. The next primary preferred it to a longer log from view 15 and tried to drop six committed records. The guard caught it. The rule now has two parts. A backup claims a view once its log is as long as the primary's was at the first word. It also claims it once it holds any record prepared in the view. Seed 22 found the first version of that rule. It compared against a length that grew with every append, so a backup one record behind never claimed anything.
+Seed 7 found the induction broken. A backup took view 17 on the primary's `StartView`, never received the records, and offered its short log as a view-17 log. The next primary preferred it to a longer log from view 15 and tried to drop six committed records. An assertion in `truncate` caught it. A backup now claims a view once its log is as long as the primary's was at the first word. It also claims it once it holds any record prepared in the view. Seed 22 found the first version of that rule, which compared against a length that grew with every append.
 
-A restarted replica remembers nothing but its disk. Its claim is the view of its last record, which is never too high. Seed 36 made that claim before a repair put the records beyond a hole back. It offered ninety-two records under the view of the twenty-four before the hole. The claim is made again once the log is whole.
+A restarted replica's claim is the view of its last record, which is never too high. Seed 36 made that claim before a repair put the records beyond a hole back. It offered ninety-two records under the view of the twenty-four before the hole. The claim is made again once the log is whole.
 
-`whole` is the other field. It says the log lost nothing since a primary last vouched for it. A replica that restarted cannot tell a record it never had from one its disk acknowledged and then lost. Seed 5884 started a view from two such logs while the one replica that had the last two committed records was cut off. Nothing was heard about them, so no commit number helped. A view now starts only with `f + 1` whole logs, or with every log in the cluster. The second clause is the escape: after a total restart nobody is whole, and the newest of all the logs is the truth. This is the distinction the protocol-aware recovery paper draws between a replica that never had an entry and one that lost it.
+`whole`, the other field, says the log lost nothing since a primary last vouched for it. A replica that restarted cannot tell a record it never had from one its disk acknowledged and then lost. The protocol-aware recovery paper draws that distinction. Seed 5884 started a view from two such logs while the one replica that had the last two committed records was cut off. Nothing was heard about them, so the new primary's wait for a log as long as every commit number heard did not help. A view now starts only with `f + 1` whole logs, or with every log in the cluster. The second clause is the escape: after a total restart nobody is whole, and the newest of all the logs is the truth.
 
 ### The chain
 
@@ -73,9 +71,9 @@ Every record carries the checksum of the record before it, in a header field. A 
 
 That one field does three jobs. A backup needs no `prevLogTerm`: a prepare that does not chain is ignored, and the primary's next beat says how far behind the backup is. A repair needs no judge. A record kept from beyond a hole, or fetched from a peer's own hole, is written back once its named parent is in place. A stray that names a record this log no longer has is dropped. And Module 9's `Truncate` message is gone. A backup compares its runs with the primary's at every beat and cuts its own tail at the first disagreement.
 
-Seed 24 found what a beat is allowed to say. A beat from the primary arrived a hundred and thirty milliseconds late. Its log was three records shorter than the prepares the backup accepted since, and the backup cut to match. Within a view the primary only appends, so a shorter beat is older news. After the first word from a primary, a backup cuts only on a real disagreement: both logs have the record, in different views.
+In seed 24 a beat from the primary arrived a hundred and thirty milliseconds late. Its log was three records shorter than the prepares the backup accepted since, and the backup cut to match. Within a view the primary only appends, so a shorter beat is older news. After the first word from a primary, a backup cuts only on a real disagreement: both logs have the record, in different views.
 
-Truncation never goes below the commit number, and `truncate` asserts it. Five of the fifteen bugs fired that assertion. Three more fired its twin in the view change, which checks the chosen log against the commit number. It is the most useful line in the module. Seed 13 found it wrong once. A stepped-down primary adopted the new primary's commit number before dropping its own uncommitted tail. The guard compared record 7 against a commit that belonged to another log. Drop the tail first.
+Truncation never goes below the commit number, and `truncate` asserts it. Five of the fifteen bugs fired that assertion. Three more fired its twin in the view change, which checks the chosen log against the commit number. Seed 13 found the guard inside `truncate` wrong once. A stepped-down primary adopted the new primary's commit number before dropping its own uncommitted tail. The guard compared record 7 against a commit that belonged to another log.
 
 ### The promise
 
@@ -83,31 +81,31 @@ Seed 562, with the fault model at full strength. Node 0 voted for view 71, crash
 
 Raft writes the term to disk before it votes. This module adds a superblock: four one-sector copies ahead of the log, written in turn, with a sequence number and a checksum. It holds the highest view the replica agreed to, the last view it was normal in, and the log's length at that claim. A replica writes it before it sends `StartViewChange`, and reports itself a backup only once the write is durable. The disk completes writes in order, so any acknowledgement for a record appended after the promise implies it.
 
-Four copies cost four sectors. A write that tears, or a sector that rots, loses one copy. The newest copy that checks out is the truth, and it is at most one write old. TigerBeetle reads a quorum of its copies. This module does not. A read fault on every copy at once is left as an exercise in arithmetic.
+A write that tears, or a sector that rots, loses one copy. The newest copy that checks out is the truth, and it is at most one write old. TigerBeetle reads a quorum of its copies, and this module does not. A read fault on every copy at once is left as an exercise in arithmetic.
 
-The superblock also holds `log_view` and its length. A restarted replica claims the view it was normal in rather than the view of its last record. The claim holds on one condition: the log is at least as long as it was at the claim. A shorter log lost records, and the claim is void.
+The superblock's `log_view` lets a restarted replica claim the view it was normal in rather than the view of its last record. The claim holds on one condition: the log is at least as long as it was at the claim. A shorter log lost records, and the claim is void.
 
 ### Reads
 
-Module 9's primary answered reads from its map. With every replica in every quorum that was safe. With a majority it is not: a primary cut off from the others keeps a map, and the others elect a replacement that commits writes the map never sees.
+Module 9's primary answered reads from its map, which was safe with every replica in every quorum. With a majority it is not: a primary cut off from the others keeps a map, and the others elect a replacement that commits writes the map never sees.
 
-A read waits. At the read's arrival the primary notes each peer's last beat. It answers once `f` peers sent a beat in this view since. Those beats say a majority still follows this primary, so nothing newer than its map was committed anywhere. Raft calls this a read index. It costs up to one heartbeat interval of latency, and nothing in correctness.
+At a read's arrival the primary notes each peer's last beat. It answers once `f` peers sent a beat in this view since. Those beats say a majority still follows this primary, so nothing newer than its map was committed anywhere. Raft calls this a read index, and this module calls it the read barrier. It costs up to one heartbeat interval of latency, and nothing in correctness.
 
-A lease is the cheaper answer: "I heard from a majority a moment ago, so I am still the primary." The planted bug `Bug::LeaseRead` answers at once on a lease: two detector timeouts since a majority last beat, by the primary's own clock. Under the Module 7 clock model, drift reaches fifty per cent. The others elect a new primary after one timeout by their clocks. The old one holds its lease by its own. The hunt in `vopr.rs` finds it, and needs runs five times the hunt's usual hundred and twenty requests to see enough partitions.
+A lease is the cheaper answer: "I heard from a majority a moment ago, so I am still the primary." The planted bug `Bug::LeaseRead` answers at once on a lease: two detector timeouts since a majority last beat, by the primary's own clock. Under the Module 7 clock model, drift reaches fifty per cent. The others elect a new primary after one timeout by their clocks. The old one holds its lease by its own. The lease hunt in `vopr.rs` finds it. Its runs need five times a hunt's usual hundred and twenty requests to see enough partitions.
 
 ### Repair and the atlas
 
-A damaged log keeps what it finds beyond the hole and asks every peer for the record at the hole. Any answer is checked against the chain. Once every peer says `Missing`, the hole is erased with what follows it.
+The Module 9 repair now checks any answer against the chain.
 
 Seed 619 erased two committed records. Record 42 was committed on nodes 0 and 1. All three crashed within two hundred milliseconds. Nodes 0 and 1 each came back with a hole at 41. Each disk lost that write after acknowledging it. Node 2 was down while 41 and 42 were prepared. Every peer said `Missing`, both erased, and every read after that returned the value before the write.
 
-Two disks lost the same record. That is two faults against a tolerance of one, and no protocol survives it. The fix is in the model, not the protocol. TigerBeetle's simulator has a `ClusterFaultAtlas`: faults are dealt so that at least one replica keeps a valid copy of every record. This module's `sim::Atlas` is asked before every fault the disk rolled, for every sector the fault touches. It vetoes a fault that puts the same sector at fault on more than `f` disks. A sector is at fault until its disk writes it again. The dice are rolled either way, so a seed means the same thing with or without the atlas.
+Two disks lost the same record. That is two faults against a tolerance of one, and no protocol survives it. The fix is in the model, not the protocol: a fault atlas, like TigerBeetle's `ClusterFaultAtlas` from Module 6. This module's `sim::Atlas` is asked before every fault the disk rolled, for every sector the fault touches. It vetoes a fault that puts the same sector at fault on more than `f` disks. A sector is at fault until its disk writes it again. The dice are rolled either way, so a seed means the same thing with or without the atlas.
 
-Under the atlas, a `Missing` from any peer that has read its disk is the truth about that disk. A committed record is intact on all but `f` of the disks that have it, and a hole every peer calls missing was never committed. Seed 353 found the first version of this rule too strict. It counted a `Missing` only from a whole peer. A peer that restarted was never whole again without a primary. No primary was possible without the repairing replica's offer. One thousand two hundred and seventy-one views in nine hundred and fifty seconds, and nothing served. That is the livelock the TigerBeetle liveness post describes, in miniature.
+Under the atlas, a `Missing` from any peer that has read its disk is the truth about that disk. A committed record is intact on all but `f` of the disks that have it, and a hole every peer calls missing was never committed. Seed 353 found the first version of this rule too strict. It counted a `Missing` only from a whole peer. A peer that restarted was never whole again without a primary. No primary was possible without the repairing replica's offer. One thousand two hundred and seventy-one views in nine hundred and fifty seconds, and nothing served. That is, in miniature, the view-change livelock that the TigerBeetle liveness post describes and that only a core found.
 
 ### The core
 
-A liveness check after the faults stop says the cluster recovers. It says nothing about whether the cluster serves during the faults, and a protocol that stalls under every partition passes it. TigerBeetle's liveness mode picks a core: a majority of replicas that are kept up and connected, while everything else is broken as hard as the seed likes. The core must make progress.
+A liveness check after the faults stop says the cluster recovers. It says nothing about whether the cluster serves during the faults, and a protocol that stalls under every partition passes it. TigerBeetle's liveness mode picks a core: a majority of replicas that are kept up and connected, while everything else is broken as hard as the seed likes.
 
 The seed draws a core one time in two, after every other draw, so that earlier seeds keep their meaning. Crashes and pauses skip the core's hosts, and partitions heal the links among them. Every request from a client of a core node must complete during the chaos. Twelve seeds forced crashes and partitions outside a core of two. They served over seven hundred requests between them, and no core client gave up.
 
@@ -128,7 +126,7 @@ The seed also draws five nodes one time in four. Nothing in the protocol is writ
 | 562 | Told to truncate record 27, committed through 27 | A vote forgotten at a restart, and two majorities | The superblock |
 | 563 | Three records committed on one disk | An old durable count from before the view carried into it | An acknowledgement from a new backup sets the count, never raises it |
 | 7775 | The node's pending writes out of order | A cut-off primary served a client that another primary had answered | A newer request while a write is pending is dropped as superseded |
-| hand | View 1 ten milliseconds into a clean start | The restart rule fired on a primary's first beat | The rule applies only to a backup already following |
+| hand | View 1 ten milliseconds into a clean start | A backup fails over on a beat from a restarting primary, and that restart rule fired on a primary's first beat | The rule applies only to a backup already following |
 | 5884 | The chosen log has 35 records, 36 are committed | A view started from two logs that had lost or never had a record, with nothing heard | `whole`, and a majority of whole logs or every log |
 | 619 | Every read after 28.6 s returned the value before an acknowledged write | Two disks lost the same record: beyond `f` | The fault atlas, and `Missing` counted from every peer |
 | 353 | 1271 views in 950 s, nothing served | `Missing` counted only from whole peers, and no peer became whole again | `Missing` from any peer that read its disk |
@@ -137,7 +135,7 @@ Three classes. The protocol's: seeds 7, 22, 24, 36, 525, 562, 563, 7775, 5884, a
 
 ### Reading a failing seed
 
-The first word of the assertion says which. `safety:` is a wrong answer or a lost record, and the history or the two logs are printed. `liveness:` is a cluster that did not converge or a core client that gave up. Every replica's status, view, length and durable count are printed. The guard inside `truncate` says which record and which commit number. From there the trace, with `--trace`, and a search for the view in the message. Every seed in the journal was read that way, in a few minutes each. The trace has every message and every status change on one line.
+The assertion's `safety:` prefix is a wrong answer or a lost record, and the history or the two logs are printed. `liveness:` is a cluster that did not converge or a core client that gave up. Every replica's status, view, length and durable count are printed. The guard inside `truncate` says which record and which commit number. From there, search the `--trace` output for the view in the message. Every seed in the journal was read that way, in a few minutes each, from a trace of some thousands of lines. That speed needs a trace with every message and every status change on one line, and a guard that names the record.
 
 ### What the swarm reaches
 
@@ -145,7 +143,7 @@ Forty seeds of one hundred requests: 91 promotions, every seed with at least one
 
 ### How TigerBeetle does it
 
-`src/vsr/replica.zig` is twelve thousand lines, and the shapes are the same. `do_view_change` carries `log_view` and the log's headers. The new primary needs a quorum of them. It truncates an op only once enough replicas say they never had it, which the code calls a nack quorum. `src/vsr/superblock.zig` keeps `view` and `log_view`, written as four, six or eight copies with a quorum read. The headers carry a `parent` checksum, and the journal is repaired op by op along it. `src/testing/storage.zig` defines `ClusterFaultAtlas` and says what it is for: at least one replica will have a valid copy to help the others repair. The liveness post tells the view-change livelock that only a core found.
+`src/vsr/replica.zig` is twelve thousand lines, and the shapes are the same. `do_view_change` carries `log_view` and the log's headers. The new primary needs a quorum of them. It truncates an op only once enough replicas say they never had it, which the code calls a nack quorum. `src/vsr/superblock.zig` keeps `view` and `log_view`, written as four, six or eight copies with a quorum read. The headers carry a `parent` checksum, and the journal is repaired op by op along it. `src/testing/storage.zig` defines `ClusterFaultAtlas`.
 
 ### Decisions recorded
 
@@ -170,7 +168,7 @@ Required:
 Optional:
 
 - TigerBeetle: [`src/vsr/superblock.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/vsr/superblock.zig). The header, `view` and `log_view`, and the quorum of copies.
-- TigerBeetle: [`src/vsr/replica.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/vsr/replica.zig). Search for `do_view_change` and `nack`. The code is long, and the comments above each are worth the search.
+- TigerBeetle: [`src/vsr/replica.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/vsr/replica.zig). Search for `do_view_change` and `nack`, and read the comments above each.
 - TigerBeetle: [`src/testing/storage.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/storage.zig). The header comment, and `ClusterFaultAtlas` near the end.
 
 ## Coding task
@@ -204,7 +202,7 @@ Start from your Module 9 workspace with `dst start 10`. If you did not finish Mo
 13. `sim::Atlas` with `allow(disk, first, count)` and `clear(disk, first, count)`. `Disk::set_atlas(id, atlas)`. Lost, misdirected, rotten and unreadable sectors ask the atlas after the roll. `DiskStats::vetoed`. `kv_env::fake::ClusterAtlas` with `f`, attached to every disk of a world with three or more hosts. `World::log_on_disk(node)`.
 14. `WorldConfig::core`. Crashes and pauses skip the core, partitions heal the links among it, and the configuration line shows it.
 15. `RunConfig::from_seed` draws `nodes` as five one time in four and a core one time in two, after every other draw. `run` asserts no core client gave up during the chaos. The disk check uses `log_on_disk`.
-16. The fingerprints. Seed 1 of `RunConfig::from_seed(1, 150)` is `0xcc45_30a4_8c93_496b`. The five ported `kv-env` tests carry their own, and every one of them changed.
+16. The fingerprints. Seed 1 of `RunConfig::from_seed(1, 150)` is `0xcc45_30a4_8c93_496b`. The five ported `kv-env` tests carry their own.
 
 ### Acceptance criteria
 
@@ -229,7 +227,7 @@ Chain first, with every Module 9 test still passing. Then the majority commit an
 <details>
 <summary>The guard</summary>
 
-Put `assert!(at > self.commit)` in `truncate` before anything else. Most of the journal fired it. When it fires, the message names the record and the commit number, and the question is which of the two is a lie. Seed 13 is the case where the commit number was.
+Put `assert!(at > self.commit)` in `truncate` before anything else. When it fires, the message names the record and the commit number, and the question is which of the two is a lie. Seed 13 is the case where the commit number was.
 
 </details>
 
@@ -243,21 +241,21 @@ Keep one predicate, `is_backup_in(view)`. Use it for the commit count, the read 
 <details>
 <summary>The promise and the queue</summary>
 
-The disk completes in order. A superblock write submitted before a record's append is durable before the record's acknowledgement. So the promise needs no acknowledgement of its own, only a place in the queue ahead of anything that depends on it. The one place that needs the completion is the first `StartViewChange`, and `on_promised` sends it.
+The disk completes in order. So the promise needs no acknowledgement of its own, only a place in the queue ahead of anything that depends on it. The one place that needs the completion is the first `StartViewChange`, and `on_promised` sends it.
 
 </details>
 
 <details>
 <summary>The atlas and determinism</summary>
 
-Roll the dice first, then ask the atlas. Ask the atlas first and skip the roll, and a seed consumes different randomness with and without one. The single-host tests of Modules 6 to 8 change meaning.
+Ask the atlas first and skip the roll, and a seed consumes different randomness with and without one. The single-host tests of Modules 6 to 8 change meaning.
 
 </details>
 
 <details>
 <summary>Finding your fingerprints</summary>
 
-Every fingerprint changes in this module. Set each constant to zero and read the hash from the assertion. Then run the binary twice and compare, as in Module 9.
+Find each one as in the Module 9 hint, with every constant set to zero first.
 
 </details>
 
@@ -278,7 +276,7 @@ Count `status view=` lines per replica in the trace. A view that rises by one ev
 ### Stretch goals
 
 - Read a quorum of superblock copies, and fault a copy in a test to show why.
-- Persist the commit number in the superblock and skip the `commit_heard` wait. Measure what it costs in writes.
+- Persist the commit number in the superblock and skip the `commit_heard` wait of requirement 6. Measure what it costs in writes.
 - Let a repairing replica offer its prefix with a marker for the hole, so that a view can start without it. Say what the new primary must do with the records it holds beyond the hole.
 - Carry records in `StartView` instead of runs, as the paper does, and remove the pull. Measure the message sizes.
 - Elect by vote instead of arithmetic: Raft's `RequestVote`, with the view promise already on disk. Compare the number of view changes per seed.
@@ -315,4 +313,4 @@ Count `status view=` lines per replica in the trace. A view that rises by one ev
 
 ## What's next
 
-Fifteen bugs, thirteen found by a seed, and each read from a trace of some thousands of lines. That took minutes for each, and only because the trace carries every message on one line and the guard names the record. Module 11 makes that faster. It runs a range of seeds past the first failure. It shrinks a failing seed's configuration to the smallest that still fails. It slices a trace by replica and by view. It turns a journal entry into a one-line reproduction. Module 12 puts the sweep in CI, where twenty thousand seeds a night is the floor and the first failing seed is the morning's work.
+Module 11 runs a range of seeds past the first failure and shrinks a failing seed's configuration to the smallest that still fails. It slices a trace by replica and by view, and turns a journal entry into a one-line reproduction. Module 12 puts the sweep in CI, where twenty thousand seeds a night is the floor and the first failing seed is the morning's work.

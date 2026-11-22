@@ -2,11 +2,9 @@
 
 ## Why this module exists
 
-After Module 7 the simulator can hurt the store in every way the course has a model for. It draws a fault configuration from the seed, runs it, stops it, and checks that the cluster comes back. What it cannot do is say that an answer the store gave was wrong. Module 6 had an oracle of sorts, one client per node that remembered the writes it had issued. That was enough for one client at a time. It says nothing about two clients on one key, which is where the bugs that matter live.
+The Module 7 simulator cannot say that an answer the store gave was wrong. The Module 6 oracle, one client per node, says nothing about two clients on one key, which is where the bugs that matter live.
 
-This is the oracle problem. A test needs two things, a way to make the system do something and a way to know whether what it did was right. The first half is the workload, and a workload that touches each key once finds nothing. The second half is the checker, and there are three kinds. The code can check itself with assertions. A reference model can say what each answer is supposed to be. And for a history with concurrent operations, a search can decide whether any order of those operations explains the answers. That last one is linearizability, and this module builds a checker for it.
-
-The checker is only worth anything once it caught something. So the module ends by planting three bugs in the store. A lost update, a stale read after a restart, and a duplicate apply on a retry. Each one has to be found. Module 9 then puts the workload and the checker under the simulator loop and calls the result a VOPR.
+This is the oracle problem. A workload that touches each key once finds nothing. This module builds the checkers, among them a linearizability checker for histories with concurrent operations, and a workload drawn from the seed. A checker is only worth anything once it caught something, so the module ends by planting three bugs in the store. Each one has to be found.
 
 ## Objectives
 
@@ -33,37 +31,37 @@ By the end of this module you can:
 | History checker | The calls and replies, with their times | Any wrong answer, overlap or not | A wrong state that no reply reveals |
 | State checker | The node's memory against its log | A wrong state, at once | A wrong reply from a right state |
 
-The first three are the syllabus's three families. The fourth is the one TigerBeetle leans on hardest, and the lesson adds it because one of the planted bugs is invisible without it. The families overlap and that is the point. Each one is cheap, and together they cover more than any one of them.
+The first three are the syllabus's three families. TigerBeetle leans hardest on the fourth, and the lesson adds it because one of the planted bugs is invisible without it. The families overlap on purpose, and each one is cheap.
 
 ### The workload
 
-A workload is a stream of requests drawn from the seed. The crate `checker::workload` draws it from a `WorkloadConfig`:
+A workload is a stream of requests drawn from the seed. `checker::workload` draws it from a `WorkloadConfig`:
 
 ```text
    keys=16 hot=2@50/100 mix=get:2 put:2 delete:1 value<=16 think=25/100@<=100ms
 ```
 
-Four choices in that line are deliberate. The key space is small and has a hot set, two keys that take half the operations. Two clients collide only on a key they share, and the fewer keys there are, the more they collide. The mix has deletes in it, because a delete is the one operation whose reply says something about the previous state. The lesson comes back to that. Every value names the client and the operation that wrote them, `c2-11` padded to a random length. A read that returns the right bytes from the wrong write is a bug, and only unique values make it visible. And a client sometimes thinks, which is to say it does nothing for a while. With think time the number of operations in flight varies. It goes from one up to the number of clients, so the store sees both the quiet and the crowded case in one run.
+Four choices in that line are deliberate. The key space is small and has a hot set, two keys that take half the operations. Two clients collide only on a key they share, and the fewer keys there are, the more they collide. The mix has deletes in it, because a delete is the one operation whose reply says something about the previous state. Every value names the client and the operation that wrote it, `c2-11` padded to a random length. A read that returns the right bytes from the wrong write is a bug, and only unique values make it visible. And a client sometimes thinks, doing nothing for a while. Within one run, think time varies the number of operations in flight from one up to the number of clients.
 
-`World::run_workload` drives it. Every client that is idle and not thinking gets its next step at once. A client is therefore always either waiting for a reply or thinking. The world records every call and every return in a `History`. A client that gives up leaves its operation open, and the next section says what the checker does with that.
+`World::run_workload` drives it. Every client that is idle and not thinking gets its next step at once. A client is therefore always either waiting for a reply or thinking. The world records every call and every return in a `History`. A client that gives up leaves its operation open.
 
-TigerBeetle's `Workload` goes further than this. It plans every transfer from its index, so that the expected result of a request is a pure function of the request's number. Its `Auditor` keeps, for every request in flight, the *set* of results the request is allowed to return. That set is how it handles uncertainty, and it is the same idea as the pending operation below.
+TigerBeetle's `Workload` goes further. It plans every transfer from its index, so that the expected result of a request is a pure function of the request's number. Its `Auditor` keeps, for every request in flight, the *set* of results the request is allowed to return. That set handles uncertainty, and it is the same idea as the pending operation below.
 
 ### Family one: the code checks itself
 
 `Node::check_invariants` runs after every input. It asserts four things. Pending writes are numbered in order. Every session with no response has exactly one pending write. A halted node has a reason. The log is whole sectors. Those are facts the node knows about itself, and a violation is a bug in the node, not in the environment. The `Driver` and the `Client` assert too. An append completing out of order is an environment bug, and a reply to a request the client never sent is a routing bug.
 
-Assertions are the cheapest check there is, and they run in production. Their limit is that they only know what the code knows. A node that answers a read from a map that is one write behind is consistent with itself. Nothing inside it is contradicted. That bug needs a view from outside.
+Assertions are the cheapest check, and they run in production. A node that answers a read from a map that is one write behind is consistent with itself. That bug needs a view from outside.
 
 ### Family two: the reference model
 
-The reference model is the simplest correct store there is, a `BTreeMap`. `checker::kv::KvModel` wraps one and implements `Model`, which is a state and one function, `apply(request) -> response`. For a history in which no two operations overlap, the check is a loop. Apply each request to the model in call order and compare the model's reply with the store's. That is what the tests of Modules 2 to 7 did with a map inline, and `check_sequential` is that loop with a name.
+The reference model is a `BTreeMap`. `checker::kv::KvModel` wraps one and implements `Model`, which is a state and one function, `apply(request) -> response`. For a history in which no two operations overlap, the check is a loop. Apply each request to the model in call order and compare the model's reply with the store's. The tests of Modules 2 to 7 did that with a map inline, and `check_sequential` is that loop with a name.
 
-The model is a complete check for a sequential history, because a sequential history has exactly one order. The moment two operations overlap, there are two orders, and the model does not know which one the store took. The test `many_clients_overlap_and_only_the_search_can_judge_them` shows the loop refusing: `NotSequential { first, second }`, the first pair that overlaps.
+The model is a complete check for a sequential history, because a sequential history has exactly one order. Once two operations overlap, there are two orders, and the model does not know which one the store took. The test `many_clients_overlap_and_only_the_search_can_judge_them` shows the loop refusing: `NotSequential { first, second }`, the first pair that overlaps.
 
 ### Family three: linearizability
 
-Herlihy and Wing gave the definition in 1990, and it is one sentence. Each operation appears to take effect instantaneously at some point between its invocation and its response. The picture is the one every Jepsen report draws:
+Herlihy and Wing gave the definition in 1990. Each operation appears to take effect instantaneously at some point between its invocation and its response. Every Jepsen report draws this picture:
 
 ```text
    c1   ├──── put k=1 ────┤                     ├── get k ──┤
@@ -72,7 +70,7 @@ Herlihy and Wing gave the definition in 1990, and it is one sentence. Each opera
         ──────────────────────────────────────────────────────► time
 ```
 
-Each operation is a window from call to return. The store is linearizable under one condition. There is one point in each window, and one order of those points, under which the model agrees with every reply. In the picture, the first `get` is allowed to return `None` or `1`, because its window overlaps the `put`. The last `get` is not allowed to return `1`. The `del` returned before it was called, and the `put` returned before the `del` was called. Real time is not negotiable. An operation that returned before another was called comes first in every legal order, however the network reordered the packets.
+Each operation is a window from call to return. The store is linearizable under one condition. There is one point in each window, and one order of those points, under which the model agrees with every reply. In the picture, the first `get` is allowed to return `None` or `1`, because its window overlaps the `put`. The last `get` is not allowed to return `1`. The `del` returned before it was called, and the `put` returned before the `del` was called. An operation that returned before another was called comes first in every legal order, however the network reordered the packets.
 
 Three small histories in `tests/checker/linearize.rs` pin the three facts that matter:
 
@@ -82,7 +80,7 @@ Three small histories in `tests/checker/linearize.rs` pin the three facts that m
 
 Lowe's paper states the definition with events, and it adds one clause that this module needs. Take a history, append returns for some of the operations that have none, and linearize the result. For a linearizable history, some such extension exists. That clause is the pending operation. A client that gave up has an operation with a call and no return. The operation is allowed to take effect at any point after its call, or never. The store is correct under either choice that explains the replies. Knossos calls these `:info` operations and treats them this way. Porcupine does not treat them at all. Its users give such an operation a return at the end of time, which forces it to happen. The test `a_write_the_client_gave_up_on_may_or_may_not_have_happened` shows both choices passing on their own and failing together. A write cannot both happen and not happen.
 
-A pending read constrains nothing, since nobody saw its answer. `kv::partition` drops those before the search.
+A pending read constrains nothing, since nobody saw its answer. `kv::partition`, which splits the history by key before the search, drops those.
 
 ### The search
 
@@ -97,9 +95,9 @@ The checker in `checker::linearize` is Wing and Gong's algorithm. Keep a set of 
         └─ nothing fits ─► remember (placed, state), back up
 ```
 
-That search is exponential, and Lowe's change is the one that makes it usable. Remember every pair of placed set and model state from which the search already failed, and never enter one twice. For the store, the state after a set of writes to one key depends only on the last write. Eight concurrent writers therefore produce at most `8 * 2^7` distinct pairs where the plain search has `8!` orders. The test `the_cache_keeps_a_wide_history_cheap` pins both numbers. The cache does not change the answer, only the cost.
+That search is exponential, and Lowe's cache makes it usable. Remember every pair of placed set and model state from which the search already failed, and never enter one twice. For the store, the state after a set of writes to one key depends only on the last write. Eight concurrent writers therefore produce at most `8 * 2^7` distinct pairs where the plain search has `8!` orders. The test `the_cache_keeps_a_wide_history_cheap` pins both numbers. The cache does not change the answer, only the cost.
 
-The second trick is older and bigger. Herlihy and Wing proved that linearizability is local. A history of several objects is linearizable exactly in the case that the history of each object is. For the store, each key is an object, so `kv::check` splits the history by key and searches each part alone. Porcupine calls this `Partition`. Horn and Kroening call it P-compositionality and report an order of magnitude from it. With the partition, the swarm runs of this module cost about 190 candidates per seed on average and 305 at worst. Without it, every key's operations compete in one search, and the cost grows with the whole history instead of the busiest key.
+Herlihy and Wing proved that linearizability is local. A history of several objects is linearizable exactly in the case that the history of each object is. For the store, each key is an object, so `kv::check` splits the history by key and searches each part alone. Porcupine calls this `Partition`. Horn and Kroening call it P-compositionality and report an order of magnitude from it. With the partition, the swarm runs of this module cost about 190 candidates per seed on average and 305 at worst. Without it, every key's operations compete in one search, and the cost grows with the whole history instead of the busiest key.
 
 Linearizability checking is NP-complete, and nothing above changes that. A history with many writers on one key and no reads to pin them down is still exponential. So the search has a budget, and a search that spends it returns `Unknown`, never a verdict it did not earn. The budget is the reason the workload keeps the hot set small. It is also the reason Module 9's report prints the search statistics next to the seed.
 
@@ -111,13 +109,13 @@ The `History` now gives every call and return a sequence number in recording ord
 
 ### Family four: the state checker
 
-The history checker is a black box. It sees only what the clients saw, and that is its strength, because it can run against a system it cannot open. A simulator can open the system. The node's map is supposed to be the log replayed, at every moment the node is idle. `kv::replay` rebuilds a `KvModel` from log records, and `Node::entries` is the map. On a disk that does not lose or corrupt writes, the medium holds exactly the records the node applied. The two have to be equal.
+The history checker is a black box. It sees only what the clients saw, so it also runs against a system it cannot open. A simulator can open the system. The node's map is supposed to be the log replayed, at every moment the node is idle. `kv::replay` rebuilds a `KvModel` from log records, and `Node::entries` is the map. On a disk that does not lose or corrupt writes, the medium holds exactly the records the node applied. The two have to be equal.
 
-This is the check TigerBeetle calls its `StateChecker`. Every replica that commits an operation reports the checksum of its state. The checker requires every replica at the same operation to report the same checksum, and the chain of checksums to be unbroken. Module 10 builds that version, with replicas to compare. Here there is one node and its log, and the comparison is just as sharp. The next section has the bug that only this check sees.
+This is the check TigerBeetle calls its `StateChecker`. Every replica that commits an operation reports the checksum of its state. The checker requires every replica at the same operation to report the same checksum, and the chain of checksums to be unbroken. Module 10 builds that version, with replicas to compare. Here there is one node and its log, and the comparison is just as sharp.
 
 ### The planted bugs
 
-`kv_core::bugs` plants bugs the way Module 7 planted fault points. `Bug` is an enum with three variants. `Bugs` holds the planted set, and without the `bugs` cargo feature it is a zero-sized type whose `has` is a constant `false`. Each bug is one branch in the node, and `grep 'bugs.has'` lists them. The simulator plants them through `WorldConfig::bugs`. The configuration line of the trace shows them, so a trace with a bug in it says so in its first line.
+`kv_core::bugs` plants bugs the way Module 7 planted fault points. `Bug` is an enum with three variants. `Bugs` holds the planted set, and without the `bugs` cargo feature it is a zero-sized type whose `has` is a constant `false`. Each bug is one branch in the node, and `grep 'bugs.has'` lists them. The simulator plants them through `WorldConfig::bugs`. The configuration line of the trace shows them.
 
 | Bug | The mistake | What it takes to reach it | Which check finds it |
 |---|---|---|---|
@@ -125,13 +123,13 @@ This is the check TigerBeetle calls its `StateChecker`. Every replica that commi
 | `StaleReadAfterRestart` | Recovery rebuilds the last record's session and skips its entry | A crash and a restart | The state checker at the restart. The history checker on the first read after it |
 | `DuplicateApplyOnRetry` | A retry of a finished request runs again instead of being answered from the session | A lost reply, so that the client retries | The history checker, through a delete that is told the key was not there |
 
-The lost update is the interesting row. Two clients put to one key at the same moment, and the second one's value never appears. The history checker accepts that. The two puts overlap, so the order in which they took effect is the store's to choose. "The second one took effect first" explains every later read. The history cannot tell a lost write from a write that lost the race. Only a third fact pins the order. A delete submitted behind a put is the write that is lost. It is answered `existed: true`, and a read after it returns the put's value. No order explains that, and the checker says so. The state checker needs no such luck. The log has the second record and the map does not, and the replay disagrees on the spot. The test `the_white_box_check_finds_a_bug_before_any_client_can` runs a workload of nothing but writes. The history checker passes it, and the replay fails it.
+Under `LostUpdate`, two clients put to one key at the same moment, and the second one's value never appears. The history checker accepts that. The two puts overlap, so the order in which they took effect is the store's to choose. "The second one took effect first" explains every later read. Only a third fact pins the order. Suppose the lost write is a delete submitted behind a put. It is answered `existed: true`, and a read after it returns the put's value. No order explains that, and the checker says so. The state checker needs no such luck. The log has the second record and the map does not, and the replay disagrees on the spot. The test `the_white_box_check_finds_a_bug_before_any_client_can` runs a workload of nothing but writes. The history checker passes it, and the replay fails it.
 
-Each bug also hides from a workload that cannot reach it, and `each_bug_hides_from_a_workload_that_cannot_reach_it` pins that too. One client never has two writes in flight. No crash means no recovery. A reliable network means no retry. A checker that reports nothing told you nothing about the store. It told you about the workload.
+Each bug also hides from a workload that cannot reach it, and `each_bug_hides_from_a_workload_that_cannot_reach_it` pins that too. One client never has two writes in flight. No crash means no recovery. A reliable network means no retry. A checker that reports nothing told you about the workload, not about the store.
 
 ### Safety and liveness
 
-Safety is "nothing bad happens", and for the store it is linearizability. Every history the store produces is linearizable, under every fault. Liveness is "something good happens", and for the store it is that a request is eventually answered. Under faults that is not a promise the store can keep. A client whose node is partitioned away is allowed to give up, and the history records a pending operation. Liveness is therefore checked where Module 7 put it, in the quiet period. After `stop_faults`, the chaos run of this module submits thirty more requests and requires that every one of them completes. A request that is not answered after the faults stopped is a liveness bug, and Module 10 produces several.
+For the store, safety is linearizability. Every history the store produces is linearizable, under every fault. Liveness is that a request is eventually answered. Under faults a client is allowed to give up, and the history records a pending operation. Liveness is therefore checked in the Module 7 quiet period. After `stop_faults`, the chaos run of this module submits thirty more requests and requires that every one of them completes. A request that is not answered after the faults stopped is a liveness bug, and Module 10 produces several.
 
 One exception is deliberate. A host that halted over a damaged log stays down, and `run_workload` gives its clients nothing more to do. They are reported as stranded rather than failed. Module 9 repairs that host from its replicas, and the exception goes away.
 
@@ -148,11 +146,11 @@ seed 1 key "k0": not linearizable: after 22 operations [0, 1, 2, 4, 5, 3, 6, 7, 
    22 c3 id=18 Delete k0            call=1351ms ret=1465ms -> DeleteOk { existed: false }
 ```
 
-Client 3 put a value, put another, and deleted the key, each one after the previous one returned. The delete was told the key was not there. No order of the twenty-three operations explains that. The put at 21 returned before the delete was called, and nothing else touched the key in between. The trace for the same seed shows why. The delete's first reply was lost and the client retried after 100 ms. The retry ran the delete again on a key that it already deleted. The pattern to learn is the one in Module 7's lesson. The verdict names the operation, the history names the client and the time, and the trace names the cause.
+Client 3 put a value, put another, and deleted the key, each one after the previous one returned. The delete was told the key was not there. No order of the twenty-three operations explains that. The put at 21 returned before the delete was called, and nothing else touched the key in between. In the trace for the same seed, the delete's first reply was lost and the client retried after 100 ms. The retry ran the delete again on a key that it already deleted. The verdict names the operation, the history names the client and the time, and the trace names the cause.
 
 ### How the other simulators do it
 
-TigerBeetle has no history checker. Its `Workload` knows the expected result of every request before it sends it. Its `Auditor` holds the set of results a request in flight is allowed to return. Its `StateChecker` compares replicas. That design works because its state machine is deterministic and its workload is planned. It does not work for a store that lets clients race on a key, which is why this module has a search instead.
+TigerBeetle has no history checker. The planned `Workload`, the `Auditor` and the `StateChecker` above do that work. That design works because its state machine is deterministic and its workload is planned. It does not work for a store that lets clients race on a key, which is why this module has a search instead.
 
 Jepsen has the history checker and nothing else, because it tests systems it cannot open. Knossos was first, and Porcupine is the fast one that most people use now. Both take the model as code and search for a linearization, and both are limited by the length of the history. Jepsen's newer checker, Elle, checks weaker models from the dependencies between transactions. It scales to long histories, which is why Jepsen reports now use it for databases. For a key-value store with single-key operations, linearizability per key is the right model and the search is the right tool.
 
@@ -179,7 +177,7 @@ Required:
 - [Anish Athalye, "Testing Distributed Systems for Linearizability"](https://anishathalye.com/testing-distributed-systems-for-linearizability/). The two example histories with pictures, and why ad-hoc tests miss bugs that a history check catches. Read the NP-completeness argument at the end.
 - [Porcupine, README](https://github.com/anishathalye/porcupine). The `Model` interface is the one this module's `Model` trait copies, and `Partition` is `kv::partition`. Then read [`checker.go`](https://github.com/anishathalye/porcupine/blob/master/checker.go), which is the search of this module in Go, with the cache keyed by bitset and state.
 - [Gavin Lowe, "Testing for Linearizability" (Concurrency and Computation 2017)](https://www.cs.ox.ac.uk/people/gavin.lowe/LinearizabilityTesting/paper.pdf). Read section 2 for Definition 1, which handles pending operations by appending returns. Read section 3 for the cache.
-- TigerBeetle: [`src/testing/cluster/state_checker.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/cluster/state_checker.zig). The state checker: every replica at one commit reports the same checksum. And [`src/state_machine/auditor.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/state_machine/auditor.zig), the file-level comment and the set of allowed results per request in flight.
+- TigerBeetle: [`src/testing/cluster/state_checker.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/cluster/state_checker.zig). The `StateChecker` of Family four. And [`src/state_machine/auditor.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/state_machine/auditor.zig), the file-level comment and the set of allowed results per request in flight.
 
 Optional:
 
@@ -242,7 +240,7 @@ The bug hunt prints the seeds on which each bug was caught. The reference soluti
 <details>
 <summary>The candidates</summary>
 
-Find the earliest return among the unplaced operations. Every unplaced operation called before that return is a candidate, and nothing else is. An unplaced operation with no return never lowers the minimum. That is exactly what "a pending operation blocks nothing" means.
+Find the earliest return among the unplaced operations. Every unplaced operation called before that return is a candidate, and nothing else is. An unplaced operation with no return never lowers the minimum, so a pending operation blocks nothing.
 
 </details>
 
@@ -284,7 +282,7 @@ Stop on an empty pass. With every idle client on a halted host and nothing think
 <details>
 <summary>Finding your fingerprint</summary>
 
-Set the constant to zero. Run the test, and read the hash from the assertion message. Make sure the two determinism runs agree first.
+Find it with the Module 4 method, after the two determinism runs agree.
 
 </details>
 
@@ -314,7 +312,7 @@ Set the constant to zero. Run the test, and read the hash from the assertion mes
 <summary>Answers</summary>
 
 1. Each operation appears to take effect instantaneously at some point between its call and its return. The word is "between". Sequential consistency keeps each client's order and drops the real-time bound.
-2. Yes, it is linearizable. The two puts overlap, so either order is legal. The order with the first client's put last explains every read. The state checker finds it, because the log has both records and the map has only one. It compares the map with the log replayed.
+2. Yes. The two puts overlap, so either order is legal. The order with the first client's put last explains every read. The state checker finds it, because the log has both records and the map has only one. It compares the map with the log replayed.
 3. A sequential history has exactly one order, so the model has exactly one sequence to run. A concurrent history has several, and the model does not know which one the store took. Checking all of them is the search.
 4. The first is linearizable. The delete took effect after the first read and before the second. A pending operation is allowed to take effect at any point after its call. The other way round, `None` and then the value with no put between, is not linearizable. A value cannot be unseen.
 5. Every pair of placed set and model state the search entered. The state of one key after a set of writes is the last write's value. The number of distinct states is therefore the number of writers, and the pairs are bounded by writers times subsets instead of permutations.
@@ -328,4 +326,4 @@ Set the constant to zero. Run the test, and read the hash from the assertion mes
 
 ## What's next
 
-The simulator can run a swarm configuration, drive a workload across many clients, and say whether the store answered correctly. The pieces are all there and they are still assembled by hand. A test function draws a configuration, builds a world, runs the workload, stops the faults and checks. Module 9 makes that one program. `vopr --seed N` draws everything from the seed and prints the configuration. It runs the chaos phase for a number of requests, stops the faults, runs to convergence, and reports. Then it gets a real target. The store becomes a primary with backups and an explicit failover rule. That is the first version of it with genuine distributed bugs to find, and the first one where the liveness check has something to say.
+A test function still assembles the configuration, the workload and the checks by hand, and Module 9 makes that one program, a VOPR. `vopr --seed N` draws everything from the seed, prints the configuration, runs the chaos phase, stops the faults, runs to convergence, and reports. Its store, a primary with backups and an explicit failover rule, has the first genuine distributed bugs, and the liveness check has something to say.

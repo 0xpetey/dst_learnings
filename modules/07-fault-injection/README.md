@@ -2,11 +2,11 @@
 
 ## Why this module exists
 
-After Module 6 the simulator has every component that touches the outside world. The network, the disk and the process each have a fault model, and the clock is about to get one. Each fault is a probability drawn from the seed. That is the adversary's hands. This module decides what the adversary does with them on each run.
+The network, the disk and the process each have a fault model. Three gaps remain, and this module closes them.
 
-Three gaps remain. The first is inside the process. A real process stops for reasons that have nothing to do with the network or the disk. The garbage collector runs. The hypervisor moves the VM. Someone sends `SIGSTOP`. Kleppmann's essay on distributed locking lists these and shows that each one breaks any protocol that measures time with a local clock. The clock itself is a component with faults. Two machines never agree on the time. When a VM wakes, its clock leaps. The second gap is in the code under test. The network model cannot make the node drop a reply, and the disk model cannot make it skip a heartbeat. FoundationDB's answer is a macro at the point of decision, `BUGGIFY`, and this module writes the Rust version. The third gap is in how a run picks its faults. Modules 5 and 6 drew every probability from a wide range on every run. Groce and colleagues showed that this is the wrong search. A run that enables everything explores less than a swarm of runs that each omit something.
+The first is inside the process. A real process stops for reasons outside the network and the disk: a garbage collection, a VM migration, a `SIGSTOP`. Kleppmann's essay on distributed locking lists these and shows that each one breaks any protocol that measures time with a local clock. The clock itself is a component with faults. The second gap is in the code under test. The network model cannot make the node drop a reply, and the disk model cannot make it skip a heartbeat. FoundationDB's answer is a macro at the point of decision, `BUGGIFY`, and this module writes the Rust version. The third gap is in how a run picks its faults. Modules 5 and 6 drew every probability from a wide range on every run, and swarm testing replaces that search.
 
-The module ends with the shape that every run has from here on. A seed picks a configuration. The configuration is the first line of the trace. The faults run for a while, then they stop, and the cluster has a quiet period in which it has to come back. That last check is the liveness check, and it is the one that the consensus protocol in Module 10 fails most often.
+Every run from here on has one shape: a configuration drawn from the seed, a chaos phase, and a quiet period. The quiet period carries the liveness check, which is the one that the consensus protocol in Module 10 fails most often.
 
 ## Objectives
 
@@ -32,7 +32,7 @@ By the end of this module you can:
 | In the process | 7 | Pause, clock skew and drift, clock jumps, a slow disk |
 | In the code | 7 | `buggify!` sites: dropped request, dropped reply, duplicate reply, skipped beat |
 
-The first two rows are faults the environment does to the program. The third row is faults the machine does to the program. The fourth row is faults the program does to itself, at points its author marked. The lesson takes them in that order.
+The environment causes rows one and two, the machine row three, and the program row four.
 
 ### A pause is a crash that keeps its memory
 
@@ -47,11 +47,11 @@ A paused process handles nothing. Its memory is intact. Everything addressed to 
       │  heartbeat timer: disarmed                   │  timer: armed again
 ```
 
-The world implements this with one flag. `Host::paused` makes `pump` return without stepping the driver, makes `receive` hold a beat instead of delivering it, and makes `arm_host_timer` want no timer. Requests still land in `FakeNetwork`'s inbox and disk completions in `FakeStorage`'s queue. Nothing is dropped, nothing is lost, and the node has no idea.
+The world implements this with one flag. `Host::paused` makes `pump` return without stepping the driver, makes `receive` hold a beat instead of delivering it, and makes `arm_host_timer` want no timer. Requests still land in `FakeNetwork`'s inbox and disk completions in `FakeStorage`'s queue. Nothing is dropped, and the node has no idea.
 
-`resume` does three things in a fixed order. It pumps the driver, so the node reads every request that queued. It ticks the heartbeat at the time the host's clock reads now, so the heartbeat notices that time passed. Then it feeds the held beats. The order is a modelling decision. A real event loop wakes up with expired timers and readable sockets at the same time, and which it handles first depends on the loop. The lesson's order gives the paused node a moment in which it believes every peer went silent. `a_pause_looks_like_a_crash_to_the_peers_and_like_nothing_to_the_host` pins both views. The peers see one `Down` and one `Up`. The paused node sees two `Down` and two `Up`, all in the same instant, and then everything is as before.
+`resume` does three things in a fixed order. It pumps the driver, so the node reads every request that queued. It ticks the heartbeat at the time the host's clock reads now, so the heartbeat notices that time passed. Then it feeds the held beats. The order is a modelling decision. A real event loop wakes up with expired timers and readable sockets at the same time, and which it handles first depends on the loop. The lesson's order gives the paused node a moment in which it believes every peer went silent. `a_pause_looks_like_a_crash_to_the_peers_and_like_nothing_to_the_host` pins both views.
 
-Two details keep the model honest. A crash during a pause ends the pause, because the process that was paused is gone. The heartbeat's sequence numbers stay dense across a pause, because beats that were never sent have no numbers. The peers therefore see no straggler, where a restart in Module 6 produced several. That is how a protocol can tell a pause from a restart, and Module 9 uses it.
+A crash during a pause ends the pause, because the process that was paused is gone. The heartbeat's sequence numbers stay dense across a pause, because beats that were never sent have no numbers. The peers therefore see no straggler, where a restart in Module 6 produced several. That is how a protocol can tell a pause from a restart, and Module 9 uses it.
 
 TigerBeetle's cluster has the same fault. Its `ReplicaHealth` is `up` with a `paused` flag, `down`, or `reformatting`. A paused replica skips its `tick`. The comment on the loop says that time keeps ticking for a replica that is down or paused. The VOPR pauses a replica with probability `8 / 10_000_000` per tick and crashes one with `2 / 10_000_000`, so pauses are four times as common as crashes. That ratio is a statement about production.
 
@@ -68,17 +68,17 @@ Every host now reads its own clock, `sim::HostClock`. It is the scheduler's cloc
    n2    ────────────╱──────────────────────►  a jump: offset grows
 ```
 
-The offset is the skew. Two hosts that start at different instants read different times, and nothing in the system can compare a local instant with a remote one. Nothing does yet. Module 10's planted lease is the first thing that wants to, and the skew is there to catch it. The drift is the rate error, in parts per million. Real oscillators are within a few hundred ppm, and the model allows up to half a million, which is 50%. The exaggeration is on purpose, and the next section says how much of it is useful. The jump is a forward step. A hypervisor paused the guest, or the kernel caught up with a missed interrupt. Jumps are only forward. `Instant` models a monotonic clock, and a monotonic clock that steps backwards is a hardware bug the core is allowed to assert against.
+The offset is the skew. Two hosts that start at different instants read different times, and nothing in the system can compare a local instant with a remote one. Nothing does yet. Module 10's planted lease is the first thing that wants to, and the skew is there to catch it. The drift is the rate error in ppm. Real oscillators are within a few hundred ppm, and the model allows up to half a million, which is 50%. The jump is a step, as after a hypervisor pause or a missed interrupt, and it is only forward. `Instant` models a monotonic clock, and a monotonic clock that steps backwards is a hardware bug the core is allowed to assert against.
 
 The process reads the host's clock, and nothing else does. The disk and the network keep true time, because a device does not care what the kernel believes. The world converts in one place. The heartbeat reports its next deadline on its own clock, and `arm_host_timer` schedules the event at `clock.to_true(deadline)`. That function returns the earliest true instant at which the clock reads the deadline or later. A jump moves deadlines into the past. `jump_clock` therefore ticks the heartbeat at once, and every deadline inside the leap comes due together.
 
 TigerBeetle's `TimeSim` has four offset types, `linear`, `periodic`, `step` and `non_ideal`, and applies them to the wall clock only. Its monotonic clock is `ticks * resolution`, ideal. This model skews the monotonic clock too, because the heartbeat's timeouts are measured on it, and two monotonic clocks on two machines do drift apart. A clock that is read by nothing cannot find a bug.
 
-The trace keeps one timeline. The world's lines carry true time. So do the node's input and output lines. `TraceObserver` stamps them from its own `Clock` and ignores the local reading the driver passes in. The local reading appears where it matters, on the `timer node=`, `resume` and `clock jump` lines.
+The trace keeps one timeline. The world's lines and the node's input and output lines carry true time. `TraceObserver` stamps the node's lines from its own `Clock` and ignores the local reading the driver passes in. The local reading appears on the `timer node=`, `resume` and `clock jump` lines.
 
 ### What the heartbeat tolerates
 
-The heartbeat has a margin. It beats every 100 ms and suspects a peer after 350 ms of silence, so three and a half beats have to go missing. The faults of this module attack that margin from different sides, and the acceptance tests pin which ones get through.
+The heartbeat has a margin. It beats every 100 ms and suspects a peer after 350 ms of silence, so three and a half beats have to go missing. The acceptance tests pin which faults of this module cross that margin.
 
 | Fault | What the paused or skewed host sees | What its peers see |
 |---|---|---|
@@ -89,13 +89,13 @@ The heartbeat has a margin. It beats every 100 ms and suspects a peer after 350 
 | Drift of 50% against a peer at minus 50% | Nothing. Its margin is 233 ms of wall time, and the slow peer beats every 200 ms | Nothing |
 | Half of all beats skipped | Three skipped in a row is one chance in eight, so some runs of silence cross the margin | `Down`, then `Up` on the next beat, every time |
 
-The lesson of the table is that drift alone cannot eat a margin of three and a half intervals. The simulator's 50% is far beyond any real oscillator and it still finds nothing here. The jump finds something at once, because a jump is a pause from the inside. The process reads the clock before and after and sees the same gap, whether the world moved or not. The realistic faults are the pause and the jump. The drift is there for the protocols of Modules 9 and 10, which compare durations across hosts.
+Drift alone cannot eat a margin of three and a half intervals. The jump finds something at once, because a jump is a pause from the inside. The process reads the clock before and after and sees the same gap, whether the world moved or not. The realistic faults are the pause and the jump. The drift is there for the protocols of Modules 9 and 10, which compare durations across hosts.
 
 ### BUGGIFY: faults the code does to itself
 
-FoundationDB has a macro, `BUGGIFY`, that is false in production and sometimes true in simulation. The article by Alex Miller is the clearest account of it. In his words, the macro is only ever true in simulation. The fault code therefore ships in the production binary. It sits at the points where the author knows the code is supposed to cope. Drop a message the protocol must retry. Delay a step the protocol must not depend on. Take the error branch that a real error takes once a year.
+FoundationDB has a macro, `BUGGIFY`, that is false in production and sometimes true in simulation. The fault code therefore ships in the production binary. It sits at the points where the author knows the code is supposed to cope. Drop a message the protocol must retry. Delay a step the protocol must not depend on. Take the error branch that a real error takes once a year.
 
-There are two probabilities, and the distinction is the heart of the design. The first time a run reaches a `BUGGIFY` site, the site is enabled or disabled for the whole run. FoundationDB's `Buggify.h` keeps a map from file and line to that decision, and `P_GENERAL_BUGGIFIED_SECTION_ACTIVATED` is 25%. An enabled site then fires with `P_GENERAL_BUGGIFIED_SECTION_FIRES`, also 25%, each time the code reaches it. A disabled site never fires. Two runs with different enabled sets exercise different unusual paths, and no site fires often enough to stop the system making progress. That is swarm testing applied to the code's own decisions, before the next section names it.
+There are two probabilities. The first time a run reaches a `BUGGIFY` site, the site is enabled or disabled for the whole run. FoundationDB's `Buggify.h` keeps a map from file and line to that decision, and `P_GENERAL_BUGGIFIED_SECTION_ACTIVATED` is 25%. An enabled site then fires with `P_GENERAL_BUGGIFIED_SECTION_FIRES`, also 25%, each time the code reaches it. Two runs with different enabled sets exercise different unusual paths, and no site fires often enough to stop the system making progress. That is swarm testing applied to the code's own decisions.
 
 The Rust version is `kv_core::buggify`:
 
@@ -105,23 +105,23 @@ if crate::buggify!(self.buggify, Site::DropReply) {
 }
 ```
 
-`Site` is an enum with one variant per fault point. The trace can name the one that fired, and a test can enable exactly one. `Buggify` holds the enabled set, the firing probability, a `Prng` forked from the world's, and a count per site. The macro expands to a method call, and that is deliberate. Rust evaluates a `#[cfg]` inside a `macro_rules!` body in the crate that expands the macro, against that crate's features. A `cfg(feature = "buggify")` in the macro body asks whether `kv-env` has the feature, not whether `kv-core` does. The gate therefore sits on the method. Without the `buggify` cargo feature, `Buggify` is a zero-sized type and `fire` is a `const fn` that returns `false`. The compiler removes the branch and the production binary carries no dice. With the feature, the production server still constructs `Buggify::off`, under which no site is enabled. Two layers, both on purpose. A fault point that fires in production is a bug.
+`Site` is an enum with one variant per fault point. The trace can name the one that fired, and a test can enable exactly one. `Buggify` holds the enabled set, the firing probability, a `Prng` forked from the world's, and a count per site. The macro expands to a method call on purpose. Rust evaluates a `#[cfg]` inside a `macro_rules!` body in the crate that expands the macro, against that crate's features. A `cfg(feature = "buggify")` in the macro body asks whether `kv-env` has the feature, not whether `kv-core` does. The gate therefore sits on the method. Without the `buggify` cargo feature, `Buggify` is a zero-sized type and `fire` is a `const fn` that returns `false`. The compiler removes the branch and the production binary carries no dice. With the feature, the production server still constructs `Buggify::off`, under which no site is enabled. Both layers are on purpose, because a fault point that fires in production is a bug.
 
-Four sites earn their place in this module. `DropRequest` sits at the top of `Node::on_request`, before anything is counted or recorded, so a dropped request leaves no trace in the node. `DropReply` and `DuplicateReply` sit in one `reply` function that every reply goes through. A dropped reply is answered from the session on the retry. A duplicate reply has to be ignored by the client. `SkipBeat` sits in the heartbeat's tick, and a skipped round sends nothing and takes no sequence number. Each site is a fault the protocol is supposed to survive. Each one makes sure that the surviving code runs on half the seeds instead of never.
+This module has four sites. `DropRequest` sits at the top of `Node::on_request`, before anything is counted or recorded, so a dropped request leaves no trace in the node. `DropReply` and `DuplicateReply` sit in one `reply` function that every reply goes through. A dropped reply is answered from the session on the retry. A duplicate reply has to be ignored by the client. `SkipBeat` sits in the heartbeat's tick, and a skipped round sends nothing and takes no sequence number. The protocol is supposed to survive each one, and the site makes the surviving code run on half the seeds instead of never.
 
-One site FoundationDB's article suggests is missing on purpose. "Delay an fsync" is a `wait(delay(5))` in FoundationDB, and there is no delay inside a sans-I/O state machine. Time belongs to the environment. The disk model's latency range is the fsync delay, and the slow host of the next section is the fsync that is always slow. A fault point in the core decides, and the environment delays.
+One site Alex Miller's "BUGGIFY" article suggests is missing on purpose. "Delay an fsync" is a `wait(delay(5))` in FoundationDB, and there is no delay inside a sans-I/O state machine. The disk model's latency range is the fsync delay, and the slow host of the next section is the fsync that is always slow. A fault point in the core decides, and the environment delays.
 
 `grep -rn 'crate::buggify!' crates/kv-core/src` lists every fault point. That is the whole discovery mechanism, and it is the same one FoundationDB has. The names are the documentation, and a site that nobody can explain in one line is a site to remove.
 
 ### Swarm testing
 
-Groce, Zhang, Eide, Chen and Regehr published "Swarm Testing" in 2012. The idea fits in a sentence of theirs. Random testing uses "a large 'swarm' of randomly generated configurations, each of which omits some features", "with configurations receiving equal resources". The result is in the abstract too. In a week of testing, the swarm "found 42% more distinct ways to crash a collection of C compilers" than the hand-tuned default configuration did.
+Groce, Zhang, Eide, Chen and Regehr published "Swarm Testing" in 2012. In their words, random testing uses "a large 'swarm' of randomly generated configurations, each of which omits some features", "with configurations receiving equal resources". In a week of testing, the swarm "found 42% more distinct ways to crash a collection of C compilers" than the hand-tuned default configuration did.
 
-The reason is in their stack example. Take a stack with a capacity bug. Above 32 items, it fails. A tester that pushes and pops with equal probability almost never gets there, because the pops keep the stack short. A configuration that omits `pop` finds the bug in seconds. In their words, some features "actively prevent the system from executing interesting behaviors". The second reason is quieter. Features compete for room in a test of fixed length, so a run with fewer of them goes deeper into each.
+The paper gives two reasons. The first is in their stack example. A stack with a capacity bug fails above 32 items. A tester that pushes and pops with equal probability almost never gets there, because the pops keep the stack short. A configuration that omits `pop` finds the bug in seconds. In their words, some features "actively prevent the system from executing interesting behaviors". Second, features compete for room in a test of fixed length, so a run with fewer of them goes deeper into each.
 
-Both reasons apply to faults. A crash schedule resets every host every second. A bug that needs ten seconds of uptime under a flaky network never appears while crashes are on. Network loss makes clients retry, and the retries hide a node that drops replies on its own. Module 6's chaos run had every fault on in every seed, with its rate drawn from a range. That configuration is one point in the space, and the paper says that it is a poor one.
+Both reasons apply to faults. A crash schedule that resets every host every second hides a bug that needs ten seconds of uptime under a flaky network. Network loss makes clients retry, and the retries hide a node that drops replies on its own. Module 6's chaos run had every fault on in every seed, with its rate drawn from a range. That configuration is one point in the space, and the paper says that it is a poor one.
 
-`WorldConfig::swarm` draws the configuration the paper asks for. Eight fault families. A coin turns each one on or off. Each one that is on draws its own parameters:
+`WorldConfig::swarm` draws the configuration the paper asks for. A coin turns each of eight fault families on or off, and each one that is on draws its own parameters:
 
 ```text
    net          NetConfig::random        or reliable
@@ -140,9 +140,9 @@ TigerBeetle's `options_swarm` in `src/vopr.zig` is the production version. It dr
 
 ### Chaos, then quiet
 
-A run now has two phases. In the chaos phase every enabled fault runs and the workload runs under it. Then `World::stop_faults` turns everything off at once. It cancels every schedule, heals every link, restarts every host that is down, and resumes every host that is paused. It makes the network and every disk reliable at their minimum latencies, and it disables every fault point. What follows is the quiet period, and the question it asks is whether the cluster comes back.
+In the chaos phase every enabled fault runs and the workload runs under it. Then `World::stop_faults` turns everything off at once. It cancels every schedule, heals every link, restarts every host that is down, and resumes every host that is paused. It makes the network and every disk reliable at their minimum latencies, and it disables every fault point. What follows is the quiet period, which asks whether the cluster comes back.
 
-The quiet period is where liveness is checked, and liveness cannot be checked anywhere else. During the chaos a partitioned node is allowed to be out of touch, and a client is allowed to give up. Once the faults stop, nothing excuses a host that is down or a peer that stays `Down`. The chaos test in this module asserts three things after `stop_faults`. Every host that is up sees every other host that is up. Every host that is down halted over a damaged medium, and only a disk that can damage its medium produced one. Every host that is up answers a fresh client. The last check needs a new client id, because the old ids name sessions that are in the log.
+Liveness can be checked only in the quiet period. During the chaos a partitioned node is allowed to be out of touch, and a client is allowed to give up. Once the faults stop, nothing excuses a host that is down or a peer that stays `Down`. The chaos test in this module asserts three things after `stop_faults`. Every host that is up sees every other host that is up. Every host that is down halted over a damaged medium, and only a disk that can damage its medium produced one. Every host that is up answers a fresh client. The last check needs a new client id, because the old ids name sessions that are in the log.
 
 FoundationDB and TigerBeetle both have this shape. FoundationDB sets `speedUpSimulation` after 300 simulated seconds. The destructive `BUGGIFY` sites guard on it, so a test shifts from causing damage to letting the system recover. TigerBeetle's `transition_to_liveness_mode` restarts and unpauses a core set of replicas and sets the crash, restart, pause and reformat probabilities to zero. The run then has `ticks_max_convergence` to reach a converged state. A run that does not is reported as `no state convergence`, with the seed to reproduce it. Module 9 builds that report.
 
@@ -155,9 +155,9 @@ t=0ns config seed=... net=[latency=2ms..31ms loss=7/100 dup=3/100 reorder=12/100
 t=0ns config drawn: slow_host=n2 buggify_sites=[drop_reply skip_beat]
 ```
 
-The first line is what the run was given. The second is what the seed drew from it, which is the information a reader needs and the configuration alone does not carry. Which host has the slow disk, what each host's clock skew is, which sites are enabled. A failing seed is readable before its first event. This is the syllabus requirement, and it is also TigerBeetle's practice. The VOPR prints every option it drew, under a `SEED=` header, before the first tick.
+The first line is what the run was given. The second is what the seed drew from it: which host has the slow disk, each host's clock skew, and which sites are enabled. A failing seed is therefore readable before its first event. This is the syllabus requirement, and it is also TigerBeetle's practice. The VOPR prints every option it drew, under a `SEED=` header, before the first tick.
 
-Every fingerprint changed because of these two lines, and because `Chance::roll` now spends no randomness on `NEVER` and `ALWAYS`. The change is on purpose.
+Every fingerprint changed on purpose, because of these two lines and because `Chance::roll` now spends no randomness on `NEVER` and `ALWAYS`.
 
 ### Reading a trace
 
@@ -188,13 +188,13 @@ t=770ms    n0 out Reply client=1 id=1 PutOk
 t=771ms    client=1 done id=1 PutOk
 ```
 
-Four things to notice. The request is delivered at 306 ms and nothing happens, because delivery puts it on the doorstep and the doorstep is not read. The client retries at 405 ms and 605 ms, and both retries queue behind the first. Host 1 gives up on host 0 at 651 ms, which is 350 ms after the last beat it heard at 301 ms. On resume, the node reads all three requests in one step, appends once, and absorbs two duplicates. In the same instant the heartbeat suspects host 1 and hears from it again. From host 0's point of view the world stopped and started, and its clock says so.
+The request is delivered at 306 ms and waits in the inbox. The client retries at 405 ms and 605 ms, and both retries queue behind the first. Host 1 gives up on host 0 at 651 ms, which is 350 ms after the last beat it heard at 301 ms. On resume, the node reads all three requests in one step, appends once, and absorbs two duplicates. In the same instant the heartbeat suspects host 1 and hears from it again.
 
 ### How the other simulators do it
 
-TigerBeetle's VOPR draws its options in `options_swarm`, prints them, runs until the requests are done, and then calls `transition_to_liveness_mode`. Pauses are a `paused` flag on a replica that is `up`. Clock faults are in `TimeSim` and touch only the wall clock. The code under test has no `BUGGIFY`. TigerBeetle puts its faults in the environment and its assertions in the code.
+TigerBeetle's VOPR runs until the requests are done and then calls `transition_to_liveness_mode`. The code under test has no `BUGGIFY`. TigerBeetle puts its faults in the environment and its assertions in the code.
 
-FoundationDB has `BUGGIFY` in the code and fewer knobs in the environment. Its simulated network and disk are models of a fairly ordinary data centre, and the thousands of `BUGGIFY` sites supply the variety. The two probabilities are 25% and 25%, and `BUGGIFY_WITH_PROB` lets a site lower its own rate. A 300 second deadline turns the destructive sites off.
+FoundationDB has `BUGGIFY` in the code and fewer knobs in the environment. Its simulated network and disk are models of a fairly ordinary data centre, and the thousands of `BUGGIFY` sites supply the variety. `BUGGIFY_WITH_PROB` lets a site lower its own rate.
 
 `turmoil` has `hold` and `release` on a link, which is a pause of the network between two hosts rather than a pause of a host. `madsim` can kill and restart a node and skews time per node. Neither has a fault-point macro, and neither draws a configuration from the seed. The test author writes the schedule by hand, which is a reasonable choice for a test and the wrong one for a search.
 
@@ -216,7 +216,7 @@ FoundationDB has `BUGGIFY` in the code and fewer knobs in the environment. Its s
 Required:
 
 - [Alex Miller, "BUGGIFY"](https://transactional.blog/simulation/buggify). The best account of FoundationDB's fault points: the two probabilities, where to put a site, and the 300 second damage control. Read all of it.
-- [Groce, Zhang, Eide, Chen and Regehr, "Swarm Testing" (ISSTA '12)](https://agroce.github.io/issta12.pdf). Read the abstract, section 1 for the stack example, and the compiler results. The two mechanisms in section 1 are the argument for `WorldConfig::swarm`.
+- [Groce, Zhang, Eide, Chen and Regehr, "Swarm Testing" (ISSTA '12)](https://agroce.github.io/issta12.pdf). Read the abstract, section 1 for the stack example, and the compiler results. The two reasons in section 1 are the argument for `WorldConfig::swarm`.
 - [Martin Kleppmann, "How to do distributed locking"](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html). Read the sections on process pauses and on clocks. Every cause on his list is a `pause` or a `jump_clock` in this module.
 - TigerBeetle: [`src/vopr.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/vopr.zig). Read `options_swarm`, the `replica_pause_probability` lines of the options, the `SEED=` print, and `transition_to_liveness_mode`.
 - FoundationDB: [`flow/include/flow/Buggify.h`](https://github.com/apple/foundationdb/blob/main/flow/include/flow/Buggify.h). Short. Read the two `P_GENERAL_` constants and the map that memoises each site's activation.
@@ -294,7 +294,7 @@ The year test still prints `two simulated years in` under one second in a releas
 <details>
 <summary>The pause flag</summary>
 
-Three functions need to know. `pump` returns at once for a paused host. `receive` pushes a beat onto `held_beats` instead of calling the heartbeat. `arm_host_timer` wants `None`. Nothing else changes, because requests and completions already wait in queues that only `pump` drains.
+Three functions read the flag. `pump` returns at once, `receive` pushes a beat onto `held_beats`, and `arm_host_timer` wants `None`. Nothing else changes.
 
 </details>
 
@@ -322,7 +322,7 @@ Write `to_true` as a ceiling division and then check it. Loop while `local(t)` i
 <details>
 <summary>Where the `cfg` goes</summary>
 
-Put `#[cfg(feature = "buggify")]` on two private modules that each define a `Buggify`, and re-export one of them. The macro body has no `cfg` in it. With a `cfg` in the macro body, the features of `kv-env` decide what the node compiles to. A test that enables the feature on `kv-core` alone then sees sites that never fire.
+Put `#[cfg(feature = "buggify")]` on two private modules that each define a `Buggify`, and re-export one of them. The macro body has no `cfg` in it. With one there, a test that enables the feature on `kv-core` alone sees sites that never fire.
 
 </details>
 
@@ -336,7 +336,7 @@ A heartbeat's `next_deadline` is also the moment a silent peer becomes suspect, 
 <details>
 <summary>Finding your fingerprints</summary>
 
-Set each constant to zero, run the test, and read the hash from the assertion message. Make sure that the four determinism tests pass first. Any difference in a `Display` impl changes the configuration line and so the hash.
+Find them as in the earlier modules, after the four determinism tests pass. Any difference in a `Display` impl changes the configuration line and so the hash.
 
 </details>
 
@@ -378,4 +378,4 @@ Set each constant to zero, run the test, and read the hash from the assertion me
 
 ## What's next
 
-The simulator can now run a random configuration, log it, torture the store, and check that it comes back. What it cannot do yet is say whether an answer the store gave was right. Module 6's oracle knew which writes it had issued, and that was enough for one client per node. Module 8 is about the oracle problem in general. It builds a workload generator with many concurrent clients and a reference model to compare against. It adds a small linearizability checker for the histories the model cannot judge. Then it plants three bugs in the store and makes sure that the checker finds each one.
+The simulator cannot yet say whether an answer the store gave was right. Module 8 builds a workload generator with many concurrent clients, a reference model, and a small linearizability checker for the histories the model cannot judge. It then plants three bugs in the store and makes sure that the checker finds each one.

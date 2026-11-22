@@ -2,15 +2,13 @@
 
 ## Why this module exists
 
-Module 0 left you with a program that fails two runs in three and never in the same way twice. You wrote down what you need to control to make one failure repeat. This module builds the first piece of that control. The piece is a precise, mechanical way to say whether two runs of a program were the same.
+Module 0 left you with a program that fails two runs in three and never in the same way twice. You wrote down what you need to control to make one failure repeat. This module builds the first piece of that control: a precise, mechanical way to say whether two runs of a program were the same.
 
-Everything later in the course rests on this check. A simulator that is "mostly deterministic" is a flaky test with extra steps. A flaky test is a test that fails only some of the time. A seed is the one number that selects a run. When seed 8812 finds a bug on the CI machine (the shared build server), the same seed must find the same bug on your laptop. It must find the bug at the same virtual time, with the same trace.
+Everything later in the course rests on this check. A simulator that is "mostly deterministic" is a flaky test with extra steps. When seed 8812 finds a bug on the CI machine, the same seed must find the same bug on your laptop. It must find the bug at the same virtual time, with the same trace.
 
 Virtual time is the clock that the simulator keeps. A trace is the record of every decision in a run. Every decision in the run must flow from the seed and from nothing else.
 
-This module does three things. It catalogs the sources of nondeterminism that you will meet. Nondeterminism is any behavior that differs between runs with equal inputs. It gives you a seeded random number generator with a pinned algorithm, and a trace log with a stable hash. A pinned algorithm is one that you fix and never change. A hash is one number that summarizes the whole trace.
-
-It also gives you the determinism check that the rest of the course runs on every change. The check runs a seed twice, compares the two hashes, and fails on any difference.
+This module does three things. It catalogs the sources of nondeterminism that you will meet. It gives you a seeded PRNG with a pinned algorithm, and a trace log with a stable hash. It also gives you the determinism check that the rest of the course runs on every change. The check runs a seed twice, compares the two hashes, and fails on any difference.
 
 ## Objectives
 
@@ -19,19 +17,19 @@ By the end of this module you can:
 - Name each source of nondeterminism in a typical program, and say which kind of check detects it.
 - Explain why the seed is the single root of randomness. Explain why derived streams, child generators forked from one parent, keep seeds stable as a simulator grows.
 - Explain why determinism must hold at the bit level for traces to be comparable.
-- Build a PRNG (pseudorandom number generator) wrapper with a pinned algorithm, and explain why `rand::StdRng` is the wrong choice.
+- Build a PRNG wrapper with a pinned algorithm, and explain why `rand::StdRng` is the wrong choice.
 - Build a trace log with a running hash, and use it to find the first point where two runs diverge.
-- Write the determinism check in two forms: in-process, inside one process, and cross-process, across two separate processes. Say what each one catches and what each one misses.
+- Write the determinism check in two forms, in-process and cross-process. Say what each one catches and what each one misses.
 
 ## Lesson
 
 ### What "deterministic" means here
 
-A deterministic program is one whose outputs are a pure function of its inputs. That definition hides the hard part. In a real program, the inputs include everything that the program reads from the outside world. Most of those reads are invisible in the source.
+A deterministic program's outputs are a pure function of its inputs. The hard part is that the inputs include everything that the program reads from the outside world. Most of those reads are invisible in the source.
 
-The clock is an input. The thread scheduler is an input. The OS entropy pool, the random source of the operating system, is an input too, because it seeds `HashMap`. Your task is to find every one of those hidden inputs. Then remove each one, or route it through a single place that you control.
+The clock is an input. The thread scheduler is an input. The OS entropy pool is an input too, because it seeds `HashMap`. Find every one of those hidden inputs. Then remove each one, or route it through a single place that you control.
 
-For simulation, the one input that you keep is the seed. A 64-bit integer goes in. A complete run comes out. Everything that the simulated cluster does is derived from the seed. That includes every message delay, every disk fault, and every client request. The picture is:
+For simulation, the one input that you keep is the seed. A 64-bit integer goes in, and a complete run comes out. Everything that the simulated cluster does is derived from the seed. That includes every message delay, every disk fault, and every client request. The picture is:
 
 ```text
 seed ──► Prng ──► every decision ──► trace ──► hash
@@ -64,23 +62,23 @@ Each row below is a hazard, a way for the outside world to leak into your progra
 
 Two rows need a closer look.
 
-The check catches thread scheduling only with enough runs. Two threads that each push to a shared vector usually interleave differently. But on a quiet machine they sometimes finish one after the other, and then the trace matches. That is why the check takes a `runs` count. It is also why the thread tests in this module use a barrier to force the threads to overlap. A barrier is a point where every thread waits for the others.
+The check catches thread scheduling only with enough runs. Two threads that each push to a shared vector usually interleave differently. But on a quiet machine they sometimes finish one after the other, and then the trace matches. That is why the check takes a `runs` count. It is also why the thread tests in this module use a barrier to force the threads to overlap.
 
-Memory addresses are the reverse. Within one process, the allocator hands the second run the same addresses that the first run freed. The in-process check passes. Between processes, address space layout randomization (ASLR) slides the heap, and the addresses change. Only a check that spawns the program twice sees this.
+Memory addresses are the reverse. Within one process, the allocator hands the second run the same addresses that the first run freed. The in-process check passes. Between processes, ASLR slides the heap, and the addresses change. Only a check that spawns the program twice sees this.
 
 ### Bit-level determinism
 
 "Same result" is not enough. Two runs that both say "cluster converged" but took different paths are not reproducible. If the bug is on the second path, you see it only half the time.
 
-The standard is bit-level determinism. Bit-level means that the complete sequence of decisions is identical. The way to make that testable is to write every decision into a trace and to hash it. The hash is a fingerprint of the run. Equal hashes mean equal runs. Unequal hashes mean a leak, and the stored trace lines show you exactly where.
+The standard is bit-level determinism: the complete sequence of decisions is identical. To make that testable, write every decision into a trace and hash it. Equal hashes mean equal runs. Unequal hashes mean a leak, and the stored trace lines show you exactly where.
 
-That means the hash function is part of your contract. It must be stable forever. This module uses FNV-1a, 64-bit, written out in about six lines. FNV-1a is a small hash function. It is not cryptographic, and it does not need to be. It must never change under you, and that rules out any hash from a crate whose algorithm is an implementation detail.
+That makes the hash function part of your contract. It must be stable forever. This module uses FNV-1a, 64-bit, written out in about six lines. It is not cryptographic, and it does not need to be. It must never change under you, and that rules out any hash from a crate whose algorithm is an implementation detail.
 
 ### The PRNG
 
-The same reasoning applies to the random number generator. `rand::StdRng` is good randomness, but its documentation says that the algorithm can change between versions. A seed recorded today with `StdRng` is a different run after `cargo update`. For a simulator, that is fatal.
+The same reasoning applies to the PRNG. `rand::StdRng` is good randomness, but its documentation says that the algorithm can change between versions. A seed recorded today with `StdRng` is a different run after `cargo update`. For a simulator, that is fatal.
 
-The course pins xoshiro256++ (Blackman and Vigna, 2018), a pseudorandom number generator. It is fast, it has 256 bits of state, and its reference implementation is short. SplitMix64, a second small generator, expands the 64-bit seed to 256 bits of state, as the authors recommend. You write both out by hand. A test then compares your output with the `rand_xoshiro` crate given identical state. That way you know that you implemented the real algorithm and not a lookalike.
+The course pins xoshiro256++ (Blackman and Vigna, 2018). It is fast, it has 256 bits of state, and its reference implementation is short. SplitMix64, a second small generator, expands the 64-bit seed to 256 bits of state, as the authors recommend. You write both out by hand. A test then compares your output with the `rand_xoshiro` crate given identical state. That way you know that you implemented the real algorithm and not a lookalike.
 
 Two details matter. The first is unbiased ranges. `next_u64() % n` is biased for most `n`. The bias is small, and that makes it worse. It is a subtle nondeterminism in the distribution, and it changes which bugs you find. Use Lemire's multiply-and-reject method or another unbiased scheme.
 
@@ -90,7 +88,7 @@ The second is derived streams. Suppose the network, the disk, and ten clients sh
 
 ### Two checks, not one
 
-The in-process check runs a closure twice, with a fresh `Prng` and `Trace` each time, and compares the two runs. A closure is the function that you pass to the check. The check is fast, it reports the first differing line, and it catches most of the catalog.
+The in-process check runs a closure twice, with a fresh `Prng` and `Trace` each time, and compares the two runs. The check is fast, it reports the first differing line, and it catches most of the catalog.
 
 Everything that the closure touches must be constructed inside it. If the closure reaches for anything outside, the second run sees the leftovers of the first run, and the check fails. That is a feature. It is exactly how two simulated nodes that share a `static` fail later in the course.
 
@@ -109,9 +107,9 @@ That one report tells you the hazard (a hash map iterated), the line that leaked
 
 ### What the check cannot do
 
-Be honest about the limits. A passing check proves that the program is a function of its seed on this machine, with this toolchain, and in this environment. A toolchain is the compiler and the libraries that build the program. Floating point transcendentals, such as sine and exponential functions, differ between platforms. Unstable sorts differ between compiler versions. An environment variable read at startup is the same in both runs, so the check cannot see it.
+A passing check proves that the program is a function of its seed on this machine, with this toolchain, and in this environment. Floating point transcendentals differ between platforms. Unstable sorts differ between compiler versions. An environment variable read at startup is the same in both runs, so the check cannot see it.
 
-The fixes for those are structural, not checks. Pin the toolchain. Commit the lockfile that pins the dependency versions. Keep `libm` out of core logic. Pass configuration explicitly. Module 3 turns most of those into compile errors.
+The fixes for those are structural, not checks. Pin the toolchain. Commit the lockfile. Keep `libm` out of core logic. Pass configuration explicitly. Module 3 turns most of those into compile errors.
 
 ## Readings
 
@@ -141,8 +139,8 @@ The tests in `project/crates/determinism/tests/` are the acceptance tests. They 
 ### Requirements
 
 1. Make `Prng::from_seed(u64)` expand the seed with SplitMix64 into xoshiro256++ state. Make `Prng::next_u64` one xoshiro256++ step. The test in `tests/reference_prng.rs` compares 10 000 outputs for six seeds against `rand_xoshiro`. It must pass.
-2. Make `Prng::below(n)` unbiased, and make it panic on `n == 0`. Build `shuffle` as Fisher-Yates, the standard unbiased shuffle, on top of `below`. Make `fork` derive a child from `next_u64`.
-3. Make `Trace::record` hash the formatted line plus a newline with FNV-1a 64-bit. Store the line unless the trace is `hash_only`. Write a known-answer test, a test with a fixed expected output, to pin the algorithm. The FNV-1a hash of the single byte `a` is `0xaf63dc4c8601ec8c`.
+2. Make `Prng::below(n)` unbiased, and make it panic on `n == 0`. Build `shuffle` as Fisher-Yates on top of `below`. Make `fork` derive a child from `next_u64`.
+3. Make `Trace::record` hash the formatted line plus a newline with FNV-1a 64-bit. Store the line unless the trace is `hash_only`. Write a known-answer test to pin the algorithm. The FNV-1a hash of the single byte `a` is `0xaf63dc4c8601ec8c`.
 4. Make `Trace::first_divergence` return the index and both lines of the first difference. Past the end of the shorter trace, either line can be `None`.
 5. Make `check_determinism(seed, runs, program)` run the closure `runs` times, with a fresh `Prng` and `Trace` each time. Compare each run to the first. Return the hash, or a `Divergence` that names the first differing line. Make `run_twice` the two-run case.
 6. Make the `Display` of `Divergence` print the seed, both hashes, and both versions of the first differing line.
@@ -203,8 +201,8 @@ If `thread_interleaving_is_caught` sometimes passes although it must fail, the t
 
 ### Stretch goals
 
-- Add `Prng::next_f64` that produces a double (a floating point number) in `[0, 1)` from the top 53 bits. Write a test that its output is bit-identical to the `rand_xoshiro` route. Then note in a comment why the course still keeps floats out of core logic.
-- Add a `Trace::diff(&self, other)` that prints a unified diff (the common line-by-line diff format) of two traces. Use it in the `Display` of `Divergence`.
+- Add `Prng::next_f64` that produces a double in `[0, 1)` from the top 53 bits. Write a test that its output is bit-identical to the `rand_xoshiro` route. Then note in a comment why the course still keeps floats out of core logic.
+- Add a `Trace::diff(&self, other)` that prints a unified diff of two traces. Use it in the `Display` of `Divergence`.
 - Make `run_process_twice` capture and compare the full trace, not only the hash. To do that, have the binary write lines to a file named on the command line.
 
 ## Check your understanding
@@ -230,4 +228,4 @@ If `thread_interleaving_is_caught` sometimes passes although it must fail, the t
 
 ## What's next
 
-You now have a seed, a generator, a trace, and a check. Module 2 builds the thing worth checking: a key-value store (a database of keys and their values) written as a pure state machine. A pure state machine has no hidden inputs. Time, network, and storage sit behind interfaces that have a real implementation and a fake one. The fake one runs under the check that you wrote in this module. From then on, every change to the store must keep that check green.
+You now have a seed, a generator, a trace, and a check. Module 2 builds the thing worth checking: a key-value store written as a pure state machine. A pure state machine has no hidden inputs. Time, network, and storage sit behind interfaces that have a real implementation and a fake one. The fake one runs under the check that you wrote in this module. From then on, every change to the store must keep that check green.

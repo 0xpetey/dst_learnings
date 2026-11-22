@@ -2,15 +2,15 @@
 
 ## Why this module exists
 
-Twelve modules built one simulator. It has a scheduler, a network, a disk, a fault swarm, an oracle, a shrinker, an inspector and a nightly. Every decision in it was yours. That is its strength, and it is also the reason you cannot yet judge it. A simulator you built is the only simulator you know.
+Twelve modules built one simulator, and every decision in it was yours. A simulator you built is the only simulator you know, so you cannot yet judge it.
 
-This module gives you a second one. You take the Module 10 replica, unchanged, and run it on turmoil, the simulation framework from the tokio project. The port is small, because the replica is sans-I/O. Three traits, a wire format and a loop. Then you compare. What was easier, what you lost, what each one found that the other did not. The answers are in the numbers and in two findings, and both findings say something about the limits of the method.
+This module runs the Module 10 replica, unchanged, on turmoil, the simulation framework from the tokio project. Then it compares the two simulators on the same replica: what was easier, what you lost, and what each one found.
 
-The last part of the course steps back from the code. Deterministic simulation finds a class of bugs well, and finds other classes not at all. The retrospective is where you write down which is which, for your simulator, with evidence. It is the course's written deliverable.
+The retrospective, the course's written deliverable, says with evidence what your simulator finds and what it cannot find.
 
 ## Objectives
 
-- Place the simulators in four shapes. One is written around a sans-I/O core. One is a runtime swapped in under existing async code. One is a hypervisor that makes a whole machine deterministic. One is a model checker for thread interleavings.
+- Place the simulators in four shapes: an environment around a sans-I/O core, a swapped runtime, a deterministic hypervisor, and a thread model checker.
 - Port the replica onto turmoil with no change to the core, and say what the port needed: a disk turmoil does not have, a wire format the fake network never asked for, and a wait that does not use `select!`.
 - Compare the two simulators with numbers from the same replica: seeds per second, virtual time per second, and what each one found.
 - Name what DST cannot find: the fidelity gap, performance regressions, compiler and kernel behaviour, bugs in the real environment, and bugs in the oracle.
@@ -21,15 +21,15 @@ The last part of the course steps back from the code. Deterministic simulation f
 
 ### Four shapes
 
-Every deterministic simulator answers one question: who owns the clock, the network and the disk, so that a seed decides everything? The answers fall into four shapes.
+Something has to own the clock, the network and the disk, so that a seed decides everything. The four shapes differ in what owns them.
 
-The first shape is the one this course built. The code under test is a state machine with no I/O, and the simulator is the environment around it. FoundationDB is the original. Its Flow language compiles actors to C++. The simulator swaps the network and the disk under them in one process, with `BUGGIFY` points in the code. TigerBeetle's VOPR is the same shape in Zig. WarpStream wrote one in Go for its whole service. The cost is that the code has to be written for it from the start. The reward is a simulator that models exactly what you need, at the speed of a function call.
+In the first shape, the one this course built, the code under test is a state machine with no I/O. The simulator is the environment around it. FoundationDB is the original. Its Flow language compiles actors to C++. The simulator swaps the network and the disk under them in one process, with `BUGGIFY` points in the code. TigerBeetle's VOPR is the same shape in Zig. WarpStream wrote one in Go for its whole service. The cost is that the code has to be written for it from the start. The reward is a simulator that models exactly what you need, at the speed of a function call.
 
-The second shape is a runtime swapped in under existing code. turmoil runs each host on its own paused tokio runtime, and gives you `turmoil::net` in place of `tokio::net`. madsim goes further and replaces tokio itself, behind a `--cfg madsim` flag, with patched copies of the crates that reach the OS. sled's simulation guide and Go's `testing/synctest` are the same idea. The code keeps its shape, and the simulator takes the runtime. The cost is that the runtime decides what is modelled, and anything that reaches around it is not.
+The second shape is a runtime swapped in under existing code. turmoil runs each host on its own paused tokio runtime, and gives you `turmoil::net` in place of `tokio::net`. madsim goes further and replaces tokio itself, behind a `--cfg madsim` flag, with patched copies of the crates that reach the OS. sled's simulation guide and Go's `testing/synctest` are the same idea. The cost is that the runtime decides what is modelled, and anything that reaches around it is not.
 
-The third shape is a hypervisor. Antithesis runs your containers, unchanged, on a hypervisor that makes the whole machine deterministic, and explores the state space from snapshots. Nothing is ported. The cost is speed, a service, and a view of the system from outside: the system's own assertions, through an SDK, are the oracle.
+The third shape is a hypervisor. Antithesis runs your containers, unchanged, on a hypervisor that makes the whole machine deterministic, and explores the state space from snapshots. The cost is speed, a service, and a view of the system from outside: the system's own assertions, through an SDK, are the oracle.
 
-The fourth shape is a model checker for threads. loom runs a block of concurrent Rust under every interleaving the C11 memory model allows. shuttle runs it under a random scheduler with a seed. Neither has a network or a disk. They check a lock-free queue, not a cluster. They are listed here because people confuse the two, and because a replica built on threads needs them before it needs anything in this course.
+The fourth shape is a model checker for threads. loom runs a block of concurrent Rust under every interleaving the C11 memory model allows. shuttle runs it under a random scheduler with a seed. Neither has a network or a disk. They check a lock-free queue, not a cluster. They are listed here because people confuse thread model checking with DST. A replica built on threads also needs them before it needs anything in this course.
 
 | Shape | Examples | You write | It owns | Speed |
 |---|---|---|---|---|
@@ -40,15 +40,15 @@ The fourth shape is a model checker for threads. loom runs a block of concurrent
 
 ### The port
 
-The replica is already sans-I/O. `kv_core::env` has three traits, `Time`, `Storage` and `Network`, and a `Driver` that moves events between them and the replica. The port is three implementations of those traits in a new crate, `kv-turmoil`, and nothing in `kv-core` changes.
+The port is a new crate, `kv-turmoil`. It implements the three `kv_core::env` traits, `Time`, `Storage` and `Network`, under the existing `Driver`. The replica is already sans-I/O, so nothing in `kv-core` changes.
 
-`TokioTime` reads tokio's paused clock, relative to the moment the host started. turmoil advances every host's clock one tick at a time, one millisecond by default, so two events in a tick share an instant. A bounced host gets a fresh runtime and a clock that starts from zero again, which is what Module 7's hosts did.
+`TokioTime` reads tokio's paused clock, relative to the moment the host started. turmoil advances every host's clock one tick at a time, one millisecond by default, so two events in a tick share an instant. turmoil calls a restart a bounce. A bounced host gets a fresh runtime and a clock that starts from zero again, which is what Module 7's hosts did.
 
-`SharedStorage` is a `Vec<u8>` per host, kept outside the host in an `Rc`. turmoil has no disk. Its filesystem is behind an unstable feature, so the port keeps the bytes itself. A crash drops the host's runtime and keeps the bytes, and a bounce reads them back. When an append returns, it is durable, as one `fsync` per append makes it. Nothing is in flight at a crash, so nothing is ever torn. Module 6's disk had five faults and a crash model. This one has none.
+`SharedStorage` is a `Vec<u8>` per host, kept outside the host in an `Rc`. turmoil has no disk. Its filesystem is behind an unstable feature, so the port keeps the bytes itself. A crash drops the host's runtime and keeps the bytes, and a bounce reads them back. When an append returns, it is durable, as one `fsync` per append makes it. Nothing is in flight at a crash, so nothing is ever torn.
 
 `UdpNetwork` is one `turmoil::net::UdpSocket` per host, bound to a fixed port. A peer message goes to the host named `n{peer}`, and a reply goes to the host named `c{client}`. Every client is a turmoil host of its own, named for its id, so that a reply from any replica finds it. turmoil's DNS does the routing that the fake world's one address space did.
 
-The network needed one thing the fake network never did: a wire format for the replica's messages. The fake network of Modules 5 to 12 carried `replica::Message` by value. The real environment never dialled a peer. So the protocol between replicas had no bytes until this module. `kv_turmoil::wire` gives it a tag byte per variant, in the style of `kv_core::protocol`, and a datagram envelope with the sender's id in it. A protocol with no wire format is a protocol that was never finished.
+The protocol between replicas had no bytes until this module. The fake network of Modules 5 to 12 carried `replica::Message` by value, and the real environment never dialled a peer. `kv_turmoil::wire` gives the protocol a tag byte per variant, in the style of `kv_core::protocol`, and a datagram envelope with the sender's id in it. A protocol with no wire format is a protocol that was never finished.
 
 ```text
                  turmoil::Sim
@@ -83,27 +83,25 @@ loop {
 }
 ```
 
-The obvious tool is `tokio::select!`, and the port does not use it. `select!` polls its branches in a random order, from tokio's own random number generator. turmoil seeds that generator, but only under `--cfg tokio_unstable`, because the method that takes the seed is unstable. Without the flag, a `select!` in host code is a source of nondeterminism that no lint in Module 3 can see. `timeout` has one order, and the loop is deterministic without the flag. The acceptance test runs seed 2 twice and across two processes to prove it.
+The port does not use `tokio::select!`. `select!` polls its branches in a random order, from tokio's own random number generator. turmoil seeds that generator, but only under `--cfg tokio_unstable`, because the method that takes the seed is unstable. Without the flag, a `select!` in host code is a source of nondeterminism that no lint in Module 3 can see. `timeout` has one order, and the loop is deterministic without the flag. The acceptance test runs seed 2 twice and across two processes to prove it.
 
 The clients are the same `kv_core::Client` state machine, driven the same way: submit, send the request as a datagram, wait on the socket or the client's deadline, feed a reply or a tick. The history is the same `checker::History`, and the check at the end is the same `checker::kv::check`. The oracle crossed over without a change, which is what keeping it `no_std` was for.
 
 ### Faults, from outside
 
-turmoil has no scheduler to hand a fault schedule to. Its faults are method calls on the `Sim`: `partition`, `repair`, `hold`, `release`, `crash` and `bounce`. So the port draws a `Schedule` from the seed before the run. The schedule is a list of instants and actions, and each one is applied between steps of `sim.step()`. The run loop is the test code. That is turmoil's model: the test is the fault injector, and the simulation is what it injects into.
+turmoil has no scheduler to hand a fault schedule to. Its faults are method calls on the `Sim`: `partition`, `repair`, `hold`, `release`, `crash` and `bounce`. So the port draws a `Schedule` from the seed before the run. The schedule is a list of instants and actions, and each one is applied between steps of `sim.step()`.
 
-The three families map onto Module 7's like this. A partition is a cut link, with one difference: turmoil drops every message in flight on the link at the moment of the cut. Module 5 decided to check a cut at send and at delivery, which lets a message already sent arrive. A hold is a pause of a link, not of a host. Messages queue on the link and are delivered on release. Module 7's pause was a property of the host. A crash is a crash, and a bounce is a restart. There is no clock skew between hosts, because every host's clock advances by the same tick. There are no fault points in the code, no slow host, and no disk fault.
+The port's three fault families, partitions, holds and crashes, map onto Module 7's. A partition is a cut link, with one difference: turmoil drops every message in flight on the link at the moment of the cut. Module 5 decided to check a cut at send and at delivery, which lets a message already sent arrive. A hold pauses a link, where Module 7's pause was a property of the host. Messages queue on the link and are delivered on release. A crash is a crash, and a bounce is a restart. There is no clock skew between hosts, because every host's clock advances by the same tick. There are no fault points in the code, no slow host, and no disk fault.
 
 ### What the port found
 
-Two things, and neither is what you expect.
+The port found two things. The first was in the real environment. Seeds 34 and 42 failed with a client that gave up in the quiet phase. The trace showed replicas going into `repairing` and `erasing` after every bounce. A bounce loses nothing in this port, so a hole in the log had no business being there. The port's first `SharedStorage` copied `FileStorage` from `kv_env::real`. That code writes at the replica's offset and then cuts the file at the end of the write. Module 10 put the superblock at offset zero. So every promise written to the superblock erased the whole log behind it. The fake disk of Module 6 never cut anything, so twenty thousand seeds of the VOPR never saw it. The real server runs a cluster of one. A cluster of one writes its superblock once, before any record, so the restart test of Module 2 never saw it either. A three-node cluster over real TCP, the Module 9 stretch goal, loses its log at its first view change. The fix is one line removed from `real.rs`. A test in `kv-env` now writes at a lower offset and reads the bytes past it back.
 
-The first was in the real environment. Seeds 34 and 42 failed with a client that gave up in the quiet phase. The trace showed replicas going into `repairing` and `erasing` after every bounce. A bounce loses nothing in this port, so a hole in the log had no business being there. The port's first `SharedStorage` copied `FileStorage` from `kv_env::real`. That code writes at the replica's offset and then cuts the file at the end of the write. Module 10 put the superblock at offset zero. So every promise written to the superblock erased the whole log behind it. The fake disk of Module 6 never cut anything, so twenty thousand seeds of the VOPR never saw it. The real server runs a cluster of one. A cluster of one writes its superblock once, before any record, so the restart test of Module 2 never saw it either. A three-node cluster over real TCP, the Module 9 stretch goal, loses its log at its first view change. The fix is one line removed from `real.rs`. A test in `kv-env` now writes at a lower offset and reads the bytes past it back.
+`real.rs` is the least tested file in the workspace, and it is the file production runs. The copied storage found the bug, and nothing about turmoil did. The retrospective gives it a paragraph of its own in part 2.
 
-That bug was in the code the simulator does not run. `real.rs` is the least tested file in the workspace, and it is the file production runs. The port found the bug because its storage copied the real one. Nothing about turmoil found it. The lesson is about what a simulation covers, and the retrospective gives it a paragraph of its own in part 2.
+The second was a view change with no fault. Seed 3 draws a latency of up to nine milliseconds and no partitions, holds or crashes, and its report says five view changes. Node 0 sends its first beat at time zero, while it is still reading its disk. The beat takes six milliseconds to reach node 4. In those six milliseconds node 0 reads its empty disk, gathers the view, and starts it. Node 4 becomes a backup under the `StartView`, and then the old beat arrives, saying `reading`. Module 10's rule for a backup whose primary is reading its disk is that the primary restarted, and node 4 starts a view change.
 
-The second was a view change with no fault. Seed 3 draws a latency of up to nine milliseconds and no partitions, holds or crashes, and its report says five view changes. The trace shows why. Node 0 sends its first beat at time zero, while it is still reading its disk. The beat takes six milliseconds to reach node 4. In those six milliseconds node 0 reads its empty disk, gathers the view, and starts it. Node 4 becomes a backup under the `StartView`, and then the old beat arrives, saying `reading`. Module 10's rule for a backup whose primary is reading its disk is that the primary restarted, and node 4 starts a view change. A first beat that arrives after the view it belongs to is a start read as a restart.
-
-Is that turmoil's finding? Run the VOPR with every fault family off except the network, and read the `view_changes` field of its report. On seeds 7, 8, 9, 16, 21, 24, 32, 36 and 38 of the first forty it is three or more. With reordering off too it still happens on six seeds, because a uniform latency range is enough. The VOPR dealt this on thousands of seeds and nothing turned red. No oracle asks whether a run with no faults has a view change. turmoil did not find a bug the VOPR missed. A trace that someone read found a question the VOPR was never asked. The fix is a stretch goal, because it moves every fingerprint since Module 9. The new oracle is a stretch goal too.
+The finding is not turmoil's. Run the VOPR with every fault family off except the network, and read the `view_changes` field of its report. On seeds 7, 8, 9, 16, 21, 24, 32, 36 and 38 of the first forty it is three or more. With reordering off too it still happens on six seeds, because a uniform latency range is enough. The VOPR dealt this on thousands of seeds and nothing turned red. No oracle asks whether a run with no faults has a view change. A trace that someone read found a question the VOPR was never asked. The fix is a stretch goal, because it moves every fingerprint since Module 9. The new oracle is a stretch goal too.
 
 The planted bugs behave as they did. `Bug::StaleReadAfterStepDown` is caught on nine of the first twelve seeds, by the same checker, with the same `safety:` message. Seed 3 catches it with no partition at all, through the view change above.
 
@@ -122,7 +120,7 @@ cost: ticks=27358 virtual=27.358s trace_lines=0
 trace_hash=c1065db4e0bc1e36
 ```
 
-Nine partitions in twenty seconds gave twenty-five view changes and nine promotions, and every one of the three hundred and sixty requests was answered. The cost line is in ticks, because that is the unit turmoil has.
+The cost line is in ticks, the unit turmoil has.
 
 The same replica, one hundred seeds each, in release on one core. The VOPR runs three hundred requests per seed, with `--requests 300`. The port's `--requests` counts per client, so `--requests 50` with six clients is also three hundred, in a chaos phase of twenty virtual seconds. Then it settles for five seconds and runs sixty requests that must all complete.
 
@@ -135,23 +133,23 @@ The same replica, one hundred seeds each, in release on one core. The VOPR runs 
 | Cost unit | scheduler events, about 10 per request | ticks, about 90 per request |
 | One seed in debug | under 50 ms | 2.4 s to 6 s |
 
-The port is fourteen times slower per seed and four times slower per virtual second. The difference is the tick. The VOPR jumps from event to event, and an idle cluster costs nothing. turmoil advances every host by one millisecond, polls every task, and ticks the network, whether anything happened or not. Twenty-seven thousand ticks for three hundred requests is the price of a general runtime. It is still twenty-seven virtual seconds in a third of a wall second, which is faster than real time by a factor of seventy.
+The port is fourteen times slower per seed and four times slower per virtual second. The difference is the tick. The VOPR jumps from event to event, and an idle cluster costs nothing. turmoil advances every host by one millisecond, polls every task, and ticks the network, whether anything happened or not. Twenty-seven thousand ticks for three hundred requests is the price of a general runtime.
 
 The port has what the VOPR does not: a real async runtime under the code, TCP with connection semantics, DNS, and the `tracing` output. It also has nothing of its own to maintain. The VOPR has what the port does not: a disk with five faults and a crash model, clock skew and jumps, and host pauses. It also has fault points in the code, a cost in the seed's units, the shrinker, the inspector and the batch. Every one of those is a module of this course, and every one has to be rebuilt on top of turmoil.
 
 ### Why not madsim
 
-madsim replaces tokio under a `--cfg madsim` flag. Code written against tokio keeps compiling. The simulator takes the runtime, the clock, the network and the random number generator in one move. RisingWave tests its whole database that way. It is the right tool for a system that already lives in tokio.
+madsim takes the runtime, the clock, the network and the random number generator. RisingWave tests its whole database that way. It is the right tool for a system that already lives in tokio.
 
-The replica does not. Its core has no runtime in it, and the only tokio in the workspace is the one the port added. madsim buys the port nothing that turmoil did not. It costs the `--cfg` flag in every command and a patched copy of every crate that reaches the OS. The madsim port is a stretch goal, and the lesson is the comparison: a sans-I/O core makes the choice of simulator cheap, and a core written on a runtime makes the runtime's simulator the only choice.
+The replica does not. Its core has no runtime in it, and the only tokio in the workspace is the one the port added. madsim buys the port nothing that turmoil did not. It costs the `--cfg` flag in every command and a patched copy of every crate that reaches the OS. The madsim port is a stretch goal. A sans-I/O core makes the choice of simulator cheap, and a core written on a runtime makes the runtime's simulator the only choice.
 
 ### What DST cannot find
 
-The simulator runs the core against a model of the world. Every bug it finds is a bug in the core against the model. Everything else is outside.
+The simulator runs the core against a model of the world, so every bug it finds is a bug in the core against the model. Everything else is outside.
 
-The fidelity gap is the distance between the model and the world. Module 6's disk tears writes in order and loses everything after the first torn write, because the real environment does one `fsync` per append. A real disk with a write cache lies about `fsync`. A real filesystem reorders metadata. Module 5's network drops, duplicates, reorders and delays. A real network also delivers a packet to the wrong process after a port is reused. It resets a TCP connection with data in both buffers, and it drops a packet larger than a path allows. Module 7's clock skews, drifts and jumps forward. When NTP corrects a real clock, the clock steps backward. The retrospective lists each assumption the model makes, and names the real behaviour it leaves out.
+The fidelity gap is the distance between the model and the world. Module 6's disk tears writes in order and loses everything after the first torn write, because the real environment does one `fsync` per append. A real disk with a write cache lies about `fsync`. A real filesystem reorders metadata. Module 5's network drops, duplicates, reorders and delays. A real network also delivers a packet to the wrong process after a port is reused. It resets a TCP connection with data in both buffers, and it drops a packet larger than a path allows. Module 7's clock skews, drifts and jumps forward. When NTP corrects a real clock, the clock steps backward.
 
-The real environment itself is outside. `real.rs` is a few hundred lines that the simulator never executes, and this module found a bug in it that lost every record. Whatever runs in production and not in the simulator is tested by nothing but the integration test of Module 2.
+The real environment itself is outside. `real.rs` is a few hundred lines that the simulator never executes. Whatever runs in production and not in the simulator is tested by nothing but the integration test of Module 2.
 
 Performance is outside. The simulator has no wall clock. Module 12 put a ceiling on the simulator's own cost in events and steps. That catches a change that makes the cluster do more work. It does not catch a change that makes the same work slower: a lock held too long, a cache missed, a syscall added. Nothing in the trace changes, and nothing turns red.
 
@@ -159,25 +157,25 @@ The compiler and the kernel are outside. The same compiler builds the core for t
 
 The oracle is outside. The checker says whether a history is linearizable against the KV model. Module 10's journal has two entries, seeds 13 and 19, where the guard was wrong and the protocol was right. An oracle that is wrong in the other direction passes a wrong answer, and no seed ever shows it. The planted bugs of Module 8 are the one check on the oracle, and they check only that it finds the bugs someone thought of.
 
-Coverage is outside, too. Twenty thousand seeds explore what the swarm's distributions reach. The view change at a clean start was reachable, was reached, and was not a failure, because nothing asked. A simulator finds the bugs its oracles describe in the states its faults reach. It says nothing about the rest.
+Coverage is outside, too. Twenty thousand seeds explore what the swarm's distributions reach. A simulator finds the bugs its oracles describe in the states its faults reach.
 
 ### What covers the gaps
 
 Each gap has a tool, and none of them is another simulator.
 
-Jepsen-style testing runs the real binary on real machines, with a real network and a real disk. It injects faults with the operating system's own tools. It is slow, a run is not reproducible, and it is the one thing that tests `real.rs`. Jepsen's checker, Elle, is the same oracle this course built, on a history taken from a real cluster.
+Jepsen-style testing runs the real binary on real machines, and injects faults with the operating system's own tools. It is slow, a run is not reproducible, and it is the one thing that tests `real.rs`. Jepsen's checker, Elle, is the same oracle this course built, on a history taken from a real cluster.
 
-Fuzzing covers the parsers. The wire format of this module decodes bytes that come from the network, which is to say from an adversary. A fuzzer feeds it bytes that no seed draws. The acceptance test has one hand-written lie in it, a beat that claims a billion runs. A fuzzer writes a million of those an hour.
+Fuzzing covers the parsers. This module's wire format decodes bytes from the network, and a fuzzer feeds it bytes that no seed draws. The acceptance test has one hand-written lie in it, a beat that claims a billion runs. A fuzzer writes a million of those an hour.
 
-Formal specification covers the protocol. A TLA+ model of the view change, checked by TLC, explores every state of a small cluster. It says whether the invariant holds in all of them. The simulator explores a random sample of a large cluster. The two are complementary, and TigerBeetle has both.
+Formal specification covers the protocol. A TLA+ model of the view change, checked by TLC, says whether the invariant holds in every state of a small cluster. The simulator explores a random sample of a large cluster. The two are complementary, and TigerBeetle has both.
 
-Assertions in production cover the fidelity gap from the other side. The replica's invariants are checked in every profile, because Module 3 kept `debug-assertions` on in release. A production crash on an assertion is a seed you did not have. TigerBeetle runs with its assertions on, and so does this replica.
+Assertions in production cover the fidelity gap from the other side. The replica's invariants are checked in every profile, because Module 3 kept `debug-assertions` on in release. A production crash on an assertion is a seed you did not have. TigerBeetle runs with its assertions on too.
 
-Antithesis covers the system as deployed, environment and all. It is the hypervisor shape: the containers run unchanged, the whole machine is deterministic, and the SDK's `always` and `sometimes` assertions are the oracle. It finds the bugs in `real.rs` that the simulator cannot run, at the speed of a virtual machine and the price of a service.
+Antithesis covers the system as deployed, environment and all. It finds the bugs in `real.rs` that the simulator cannot run. The SDK's `always` and `sometimes` assertions are the oracle.
 
 ### The retrospective
 
-The written deliverable is a retrospective on your simulator. `solutions/13-landscape/RETROSPECTIVE.md` is the reference one, and yours is yours. It has six parts.
+The retrospective on your simulator has six parts. `solutions/13-landscape/RETROSPECTIVE.md` is the reference one.
 
 1. What the simulator models, in a table: the clock, the network, the disk, the hosts, the code's fault points, and the oracle. One row per model, with the decision it rests on and the module that made it.
 2. What each model leaves out, next to the real behaviour it leaves out, and what covers the gap.
@@ -203,7 +201,7 @@ The retrospective is short, two to four pages. It is honest about the gaps, beca
 Required:
 
 - turmoil, [the crate documentation](https://docs.rs/turmoil/latest/turmoil/) and [the README](https://github.com/tokio-rs/turmoil), for hosts, clients, `partition`, `hold` and the note on `tokio_unstable`. Then `src/rt.rs` and `src/top.rs` in the repository, for the paused runtime and the link that clears its queue on a partition.
-- madsim, [the README](https://github.com/madsim-rs/madsim), for the `--cfg madsim` swap and the list of patched crates. Read it to see what a runtime swap costs.
+- madsim, [the README](https://github.com/madsim-rs/madsim), for what a runtime swap costs: the `--cfg madsim` swap and the list of patched crates.
 - Antithesis, ["How Antithesis works"](https://antithesis.com/docs/introduction/how_antithesis_works/) in the documentation, and Will Wilson, ["Is something bugging you?"](https://antithesis.com/blog/is_something_bugging_you/) (2024). The hypervisor shape, and the case for it.
 - WarpStream, ["Deterministic Simulation Testing for Our Entire SaaS"](https://www.warpstream.com/blog/deterministic-simulation-testing-for-our-entire-saas) (2024). The first shape, written for a whole service in Go, and what it found.
 - Tyler Neely, [the sled simulation guide](https://sled.rs/simulation.html), subtitled "jepsen-proof engineering". The rules for code that a simulator can run, in one page.
@@ -278,14 +276,14 @@ From the repository root, `mise run check:13` runs this module's `scripts/check.
 <details>
 <summary>The host closure</summary>
 
-`sim.host` takes a closure that builds the future, because turmoil calls it again on every bounce. Give it `move` copies of the `Rc` handles and clone them inside: `move || replica_host(node, cluster.clone(), shared.clone())`. The future has to be `'static`, so it cannot borrow from the test.
+`sim.host` takes a closure that builds the future, because turmoil calls it again on every bounce. Give it `move` copies of the `Rc` handles and clone them inside: `move || replica_host(node, cluster.clone(), shared.clone())`.
 
 </details>
 
 <details>
 <summary>Where a reply goes</summary>
 
-A backup forwards a request to the primary, and the primary replies. The primary never saw the client's address. Make every client a host named `c{id}`, bound to one fixed port, and send the reply to `(client_name(id), CLIENT_PORT)`. turmoil's `lookup` resolves the name.
+A backup forwards a request to the primary, and the primary replies. The primary never saw the client's address. Send the reply to `(client_name(id), CLIENT_PORT)`. turmoil's `lookup` resolves the name.
 
 </details>
 
@@ -356,4 +354,4 @@ Run the seed with `--trace` and grep the `status` and `fault` lines. A replica t
 
 ## What's next
 
-Nothing in this course. You have a replicated store under consensus and a simulator that dealt it tens of thousands of faulty runs. You have a journal of every bug those runs found, the tools that read a failure, and a nightly that runs the seeds. You have a second simulator under the same replica, and a retrospective that says what all of it does not cover. The stretch goals of this module are the next course: a port to madsim, a run on real machines, a specification in TLA+, and the oracle the VOPR lacks. Pick the one your system needs. The one thing to carry forward is the habit. When a seed fails, read the trace. When nothing fails for a month, ask what nobody asked.
+The course ends here, and this module's stretch goals are the next course. Pick the one your system needs. When a seed fails, read the trace, and after a month with no failure, ask what nobody asked.

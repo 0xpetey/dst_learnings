@@ -4,7 +4,7 @@
 
 Module 1 cataloged the kinds of nondeterminism that exist. Module 2 built a store whose core, by discipline, touches none of them. Discipline does not survive contact with a second contributor, a deadline, or a dependency upgrade. This module replaces discipline with the compiler.
 
-The module has two halves. The first half is a hunt. You write idiomatic Rust that looks deterministic and is not. You run it through the Module 1 check, and you watch the check catch each hazard and pass each fix.
+The first half is a hunt. You write idiomatic Rust that looks deterministic and is not. The Module 1 check catches each hazard and passes each fix.
 
 The second half is structural. The core crate becomes `no_std`, and the workspace gets lint bans and a pinned toolchain. You then prove that any hazard pasted into the core fails to build.
 
@@ -30,13 +30,13 @@ Each item below is a hidden input. The fix always has the same shape. Move the r
 
 #### `HashMap` and `HashSet`
 
-The default hasher is `RandomState`. A hasher turns each key into a slot number. `RandomState` takes a seed from OS randomness once per process and then perturbs it per map. Two maps with the same contents iterate in different orders. Any code that walks a map is nondeterministic. Examples are code that picks the first healthy peer or drains a set of timers. Another example formats a map into a log line that is later hashed.
+The default hasher, `RandomState`, takes a seed from OS randomness once per process and then perturbs it per map. Two maps with the same contents iterate in different orders, so any code that walks a map is nondeterministic. Examples are code that picks the first healthy peer or drains a set of timers. Another example formats a map into a log line that is later hashed.
 
 The fix is `BTreeMap`, or a `HashMap` with a fixed `BuildHasher` such as `FxBuildHasher` from `rustc-hash`. This course bans the `std` types outright. The lint cannot see which hasher a `HashMap<K, V>` with a defaulted third parameter uses. The `ahash` crate is not a fix either. Its README says that each map hashes differently unless you disable the `runtime-rng` feature.
 
 #### `Instant`, `SystemTime`, `thread::sleep`
 
-These three are direct syscalls. A syscall is a call from the program into the operating system. `Instant::now()` in core logic is a dependency on the real clock. There is no local fix. The caller must inject the clock. Module 2 already did this with `kv_core::Instant`.
+These three are direct syscalls. `Instant::now()` in core logic is a dependency on the real clock, and there is no local fix. The caller must inject the clock. Module 2 already did this with `kv_core::Instant`.
 
 #### Threads and everything that protects shared state
 
@@ -44,7 +44,7 @@ The hazards are `thread::spawn`, `Mutex`, `RwLock`, atomics, a channel with seve
 
 #### `OnceLock`, `LazyLock`, `Once`
 
-These are initialize-once primitives. The scheduler decides which thread wins. More important, the value lives for the whole process. See the section on the one-process cluster below.
+The scheduler decides which thread wins the initialization. More important, the value lives for the whole process. See the section on the one-process cluster below.
 
 #### `std::env`, `std::fs::read_dir`, `std::net`, `std::process`
 
@@ -52,25 +52,25 @@ All of these read the outside world. The order of `read_dir` depends on the file
 
 #### Memory addresses
 
-The hazards are `{:p}` formatting, `Arc::as_ptr`, `ptr::hash`, a map keyed by pointer, and a pointer mixed into an id. ASLR (address space layout randomization) moves the heap on every process start. The subtle part is that a sort by raw address survives ASLR. A slide of the whole heap preserves relative order. A hash of an address does not survive, because the slide changes every hashed value. The `pointer_order` hazard in this module shows the hash case, and a comment in it explains why the sort case passes.
+The hazards are `{:p}` formatting, `Arc::as_ptr`, `ptr::hash`, a map keyed by pointer, and a pointer mixed into an id. ASLR moves the heap on every process start. The subtle part is that a sort by raw address survives ASLR, because a slide of the whole heap preserves relative order. A hash of an address does not survive, because the slide changes every hashed value. The `pointer_order` hazard in this module shows the hash case, and a comment in it explains why the sort case passes.
 
 #### Debug versus release
 
-Integer overflow panics in debug and wraps in release. `debug_assert!` disappears in release. A simulator with two behaviors is two simulators. The seed that fails in one passes in the other. The workspace pins `overflow-checks = true` and `debug-assertions = true` for every profile. TigerBeetle runs with assertions on in production for the same reason.
+Integer overflow panics in debug and wraps in release, and `debug_assert!` disappears in release. A simulator with two behaviors is two simulators. The seed that fails in one passes in the other. The workspace pins `overflow-checks = true` and `debug-assertions = true` for every profile. TigerBeetle runs with assertions on in production for the same reason.
 
 #### Floating point
 
-Floating point is deterministic on one machine and toolchain. `f64::sin`, `exp` and `powf` come from the platform `libm` and differ across operating systems. These are transcendental functions, which means functions such as sine, exponent and power. Keep transcendental functions out of core, or depend on a pure-Rust `libm`. The `no_std` core in this module has no `f64::sin` at all, because those methods live in `std`.
+Floating point is deterministic on one machine and toolchain. The transcendental functions `f64::sin`, `exp` and `powf` come from the platform `libm` and differ across operating systems. Keep them out of core, or depend on a pure-Rust `libm`. The `no_std` core in this module has no `f64::sin` at all, because those methods live in `std`.
 
 #### Unstable sorts and the toolchain
 
 `sort_unstable` is deterministic for a given compiler. It can reorder equal elements after a compiler upgrade. Pin the toolchain in `rust-toolchain.toml` and commit `Cargo.lock`. "Same seed, same result" must hold across machines, and that means the same binary.
 
-`unsafe` code opens the door to undefined behavior, and undefined behavior can make anything nondeterministic. Put `#![forbid(unsafe_code)]` on the core, and run Miri on any code elsewhere that needs `unsafe`.
+Undefined behavior from `unsafe` code can make anything nondeterministic. Put `#![forbid(unsafe_code)]` on the core, and run Miri on any code elsewhere that needs `unsafe`.
 
 ### Hazards in the async ecosystem
 
-The default Tokio runtime is multi-threaded and work-stealing, which means idle threads take tasks from busy threads. `current_thread` removes the threads, but task wake order is still not under your control.
+The default Tokio runtime is multi-threaded and work-stealing. `current_thread` removes the threads, but task wake order is still not under your control.
 
 #### `tokio::select!`
 
@@ -88,13 +88,13 @@ Every `static`, `thread_local!`, `OnceLock`, global metrics registry, global `lo
 
 The fix is structural. Use no mutable globals. All state hangs off a per-replica struct that the simulator creates. If you must have a global subscriber, tell it which simulated node is "current" before each step.
 
-Panics need a decision too. A replica panic is an assertion failure of the simulator. An unwind runs the `Drop` impls of every frame that it passes. An unwind through half a cluster leaves the state in an unknown condition and can hide the evidence. This workspace sets `panic = "abort"` in the `dev` and `release` profiles. Cargo ignores that configuration for the `test` profile, so `#[should_panic]` tests keep working.
+Panics need a decision too. A replica panic is an assertion failure of the simulator. An unwind through half a cluster runs `Drop` impls, leaves the state in an unknown condition, and can hide the evidence. This workspace sets `panic = "abort"` in the `dev` and `release` profiles. Cargo ignores that configuration for the `test` profile, so `#[should_panic]` tests keep working.
 
 ### Hazards from dependencies
 
 Third-party crates call `Instant::now()` and `rand::random()`, spawn threads, and use `HashMap` freely. `uuid::new_v4`, `fastrand`, `getrandom`, and anything built on `tokio` are all suspects. A dependency that the core crate pulls in is a dependency on the real world.
 
-Audit with three tools. `cargo tree -p kv-core` lists what the core depends on. After this module, the answer is `determinism` as a dev-dependency and nothing else. A `grep` over vendored sources for the banned calls finds the hidden clock in a crate that calls itself pure. `cargo deny` bans crates by name, so a future `cargo add` cannot reintroduce one.
+Audit with three tools. After this module, `cargo tree -p kv-core` shows `determinism` as a dev-dependency and nothing else. A `grep` over vendored sources for the banned calls finds the hidden clock in a crate that calls itself pure. `cargo deny` bans crates by name, so a future `cargo add` cannot reintroduce one.
 
 ### Making the hazards unreachable
 
@@ -102,13 +102,13 @@ There are four mechanisms, from strongest to weakest.
 
 #### `no_std` + `alloc`
 
-The core crate declares `#![no_std]` and `extern crate alloc;`. `Vec`, `String`, `BTreeMap` and `VecDeque` come from `alloc`. `std::time`, `std::thread`, `std::fs`, `std::net`, `std::env`, `HashMap`, `Mutex`, `OnceLock`, `println!` and `f64::sin` do not exist. This is not about embedded targets. It is the strongest statement that Rust can make about what a crate cannot reach.
+The core crate declares `#![no_std]` and `extern crate alloc;`, so it keeps `Vec`, `String`, `BTreeMap` and `VecDeque`. `std::time`, `std::thread`, `std::fs`, `std::net`, `std::env`, `HashMap`, `Mutex`, `OnceLock`, `println!` and `f64::sin` do not exist. This is not about embedded targets. It is the strongest statement that Rust can make about what a crate cannot reach.
 
-The proof is `cargo check --target thumbv7em-none-eabihf`. A bare-metal target has no `std` to fall back on. If the crate compiles there, nothing in it touches the OS.
+The proof is `cargo check --target thumbv7em-none-eabihf`. That bare-metal target has no `std`. If the crate compiles there, nothing in it touches the OS.
 
 The `determinism` crate gets the same treatment with a `std` feature. `Prng` and `Trace` are `no_std`, so the core can use them later. The `harness` module spawns processes, so it sits behind the feature.
 
-The core also declares `#![forbid(unsafe_code)]`. An inner `allow` cannot override `forbid`. One line, and the core cannot contain undefined behavior.
+The core also declares `#![forbid(unsafe_code)]`. One line, and the core cannot contain undefined behavior.
 
 #### Clippy bans
 
@@ -139,14 +139,14 @@ Required:
 - [madsim](https://github.com/madsim-rs/madsim) and [turmoil](https://github.com/tokio-rs/turmoil) READMEs, plus the [turmoil docs](https://docs.rs/turmoil/latest/turmoil/). These are two ways to swap the world under unchanged code.
 - [Clippy: `disallowed_methods`](https://rust-lang.github.io/rust-clippy/master/index.html#disallowed_methods) and [`disallowed_types`](https://rust-lang.github.io/rust-clippy/master/index.html#disallowed_types). This is the configuration format that this module uses.
 - [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html). The page lists the defaults of `overflow-checks`, `debug-assertions` and `panic`, and says why those defaults are a problem.
-- [sled: simulation guide](https://sled.rs/simulation.html). The Rust community uses this recipe. It pairs deterministic state machines with a discrete-event simulator, which jumps from event to event.
-- [S2, Deterministic simulation testing for async Rust](https://s2.dev/blog/dst). The post retrofits DST (deterministic simulation testing) onto a Tokio codebase. A team that lived it tells the "`std` fights you" story.
+- [sled: simulation guide](https://sled.rs/simulation.html). The Rust community uses this recipe. It pairs deterministic state machines with a discrete-event simulator.
+- [S2, Deterministic simulation testing for async Rust](https://s2.dev/blog/dst). The post retrofits DST onto a Tokio codebase. A team that lived it tells the "`std` fights you" story.
 
 Optional:
 
 - [loom](https://github.com/tokio-rs/loom) and [shuttle](https://github.com/awslabs/shuttle). These explore schedules for the places where threads are unavoidable. Neither models a clock.
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/). It bans crates by name.
-- [The `#[expect]` attribute](https://doc.rust-lang.org/reference/attributes/diagnostics.html#the-expect-attribute) in the Rust reference. When the lint it expects stops firing, it fails the build. That is why the markers in `real.rs` cannot rot.
+- [The `#[expect]` attribute](https://doc.rust-lang.org/reference/attributes/diagnostics.html#the-expect-attribute) in the Rust reference. It fails the build once its lint stops firing, so the markers in `real.rs` cannot rot.
 - [RisingWave, Deterministic Simulation: A New Era of Distributed System Testing](https://risingwave.com/blog/deterministic-simulation-a-new-era-of-distributed-system-testing/). The authors of `madsim` give its design rationale.
 - [Stevan Andjelkovic, Introduction to simulation testing](https://stevana.github.io/introduction_to_simulation_testing.html). This is a language-neutral framing.
 
@@ -205,9 +205,7 @@ The Module 2 tests still pass unchanged, including `known_seed_fingerprint`. The
 <details>
 <summary>Convert `kv-core` to `no_std`</summary>
 
-Add the attributes. Then let the compiler list what is missing. `Vec` and `String` need `use alloc::vec::Vec;` and `use alloc::string::String;`. `BTreeMap` and `VecDeque` come from `alloc::collections`. `fmt` comes from `core`.
-
-The `vec!` macro needs `use alloc::vec;` in each module that uses it. `format!` is `alloc::format!`. `Duration` was always in `core::time`.
+Add the attributes. Then let the compiler list what is missing. Everything that `kv-core` uses is in `alloc` or `core`.
 
 </details>
 

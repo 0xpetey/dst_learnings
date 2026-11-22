@@ -2,15 +2,15 @@
 
 ## Why this module exists
 
-Module 1 gave you a way to tell whether two runs of a program were the same. It said nothing about how to write a program that passes that test and also does real work. Real work means talking to clients over a network, writing to a disk, and waiting for timeouts. This module covers that.
+Module 1 gave you a way to tell whether two runs of a program were the same. This module covers how to pass that test in a program that does real work. Real work means talking to clients over a network, writing to a disk, and waiting for timeouts.
 
-The idea is old and has several names: dependency inversion of the environment, "sans-I/O", and the state-machine style. A state machine is code that holds state and reacts to one input at a time. The core of the system never touches the outside world. It consumes events and emits commands.
+The idea is old and has several names: dependency inversion of the environment, "sans-I/O", and the state-machine style. The core of the system never touches the outside world. It consumes events and emits commands.
 
 The environment is the code that talks to the outside world. It turns commands into real socket writes and file syncs. It turns what comes back into events. Swap the environment for an in-memory fake, and the same core runs in a simulator. The swap needs no `cfg` flags and no mocking framework.
 
 At the end of this module your workspace has four parts:
 
-- A single-node key-value store with durable writes. A durable write survives a crash.
+- A single-node key-value store with durable writes.
 - A client with timeouts and retries.
 - A real environment that serves the store over TCP.
 - A fake environment that runs the store under the Module 1 determinism check.
@@ -23,18 +23,18 @@ By the end of this module you can:
 
 - Draw the boundary between core logic and environment, and name every crossing of it.
 - Write a component as a state machine that takes inputs and emits outputs, and explain why it never blocks.
-- Explain why a single-threaded event loop, one loop that handles one input at a time, is the simplest route to determinism.
+- Explain why a single-threaded event loop is the simplest route to determinism.
 - Explain why the course owns its loop instead of adopting an async runtime.
-- Explain completion-based I/O (submit, then handle a completion later) and why it fits simulation.
+- Explain completion-based I/O and why it fits simulation.
 - Choose between generic parameters and `dyn Trait` for the environment, and defend the choice.
 - Explain why `std::time::Instant` cannot be the notion of time in the core, even in a crate that can use `std`.
-- Treat assertions as design, and state the invariants (conditions that must always hold) of a node and a client.
+- Treat assertions as design, and state the invariants of a node and a client.
 
 ## Lesson
 
 ### The boundary
 
-Draw a line through your program. On one side is everything that is a pure function of its inputs. A pure function returns the same output for the same inputs. This side parses a request, decides to append to the log, updates the map, and chooses a reply. On the other side is everything that touches the world: sockets, files, the clock, threads. The design question of this module is how to keep that line sharp.
+Draw a line through your program. On one side is everything that is a pure function of its inputs. This side parses a request, decides to append to the log, updates the map, and chooses a reply. On the other side is everything that touches the world: sockets, files, the clock, threads. The design question of this module is how to keep that line sharp.
 
 ```text
             core (kv-core)                        environment (kv-env)
@@ -74,9 +74,9 @@ impl Node {
 }
 ```
 
-That is the whole interface. The node never calls `write`, never calls `now`, and never waits. When it wants something from the world, it pushes an `Output` and returns. When the world has something for the node, the world calls `on_input`. The function is synchronous and finite. Every call ends.
+That is the whole interface. The node never calls `write`, never calls `now`, and never waits. When it wants something from the world, it pushes an `Output` and returns. When the world has something for the node, the world calls `on_input`. The function is synchronous and finite.
 
-This has three consequences that you will feel for the rest of the course:
+This has three consequences for the rest of the course:
 
 - Testing is trivial. Construct a node, feed it inputs, and assert on outputs. The test needs no sockets, no temp files, and no sleeps.
 - Simulation is the same as testing. A simulator is a loop that feeds inputs in an order of its choosing. To delay, drop, or reorder an input is a `VecDeque` operation.
@@ -115,7 +115,7 @@ This is a small amount of code. It is the difference between a store that is saf
 
 ### The write-ahead log and the torn tail
 
-The write-ahead log is the file where the node records each write before it applies it. Each log entry is `[u32 length][tag][key][value]`. Recovery reads entries front to back and stops at the first entry that is cut short.
+Each entry of the write-ahead log is `[u32 length][tag][key][value]`. Recovery reads entries front to back and stops at the first entry that is cut short.
 
 The torn tail is that short last entry. It is what a crash between `write` and `fsync` looks like, and it is expected. The node remembers the length of the valid prefix. The next append lands at that length and overwrites the garbage.
 
@@ -127,7 +127,7 @@ This module allows `std`, so the obvious type for "now" is `std::time::Instant`.
 
 There is no way to construct a `std::time::Instant` except to ask the OS for the current time. A fake clock cannot say "it is now the year 2031".
 
-So the core defines its own `Instant`. It is a `u64` of nanoseconds since an epoch, a zero point for time that the environment defines. Its arithmetic is checked and panics on overflow in every profile. The real environment converts from the monotonic clock. The fake environment increments a counter. The core never knows the difference.
+So the core defines its own `Instant`. It is a `u64` of nanoseconds since an epoch that the environment defines. Its arithmetic is checked and panics on overflow in every profile. The real environment converts from the monotonic clock. The fake environment increments a counter. The core never knows the difference.
 
 ### Completion-based I/O
 
@@ -149,7 +149,7 @@ The cost is that long-lived flows, for example a client that waits for a reply, 
 
 ### Generics or `dyn`?
 
-The `Driver` is `Driver<T: Time, S: Storage, N: Network, O: Observer>`. It uses generic parameters, not trait objects. Monomorphization means that the compiler makes one copy of the code per environment type. So the fake environment costs nothing per event. That matters for a simulator that processes millions of events.
+The `Driver` is `Driver<T: Time, S: Storage, N: Network, O: Observer>`. It uses generic parameters, not trait objects. After monomorphization, the fake environment costs nothing per event. That matters for a simulator that processes millions of events.
 
 A mismatched environment is a compile error. The cost is a long type name, and a type alias hides it. If you ever need to choose the environment at runtime, `dyn` is a local change inside the environment crate, not a change to the core.
 

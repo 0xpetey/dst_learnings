@@ -2,11 +2,11 @@
 
 ## Why this module exists
 
-After Module 8 every piece of a simulator exists. A scheduler owns time. A network model and a disk model decide the fate of every message and every write. A swarm configuration turns fault families on and off from the seed. A workload drives many clients at once, a history records what they saw, and a checker says whether that was right. What does not exist is the program. A test function draws a configuration, builds a world, runs the workload, stops the faults and checks, and each test does it a little differently. This module makes it one program with one argument. `vopr --seed N` draws everything from the seed and prints the configuration. It runs the chaos phase, stops the faults, waits for the cluster to converge, runs a quiet phase and checks. A seed that fails prints the configuration and the assertion that fired.
+After Module 8 every piece of a simulator exists, but each test function wires the pieces together a little differently. This module makes that wiring one program with one argument, `vopr --seed N`. A seed that fails prints the configuration and the assertion that fired.
 
-The second thing that does not exist is a target worth the trouble. Three hosts were three stores. Each node answered its own clients from its own disk, and nothing one node did reached another. The bugs that a simulator earns its keep on are the ones between nodes. So this module makes the three hosts one store. The node becomes a replica. One replica is the primary and answers clients, the others are backups, and a write is answered only once it is on every disk. There is an explicit failover rule, a procedure for a new primary to take over, and a repair for a disk that lost a record. That is primary-backup replication, the simplest replication there is, and it is enough to have real distributed bugs.
+The simulator also needs a target with bugs between nodes, and until now nothing one node did reached another. So this module makes the three hosts one store under primary-backup replication, which is enough to have real distributed bugs.
 
-The simulator found four while the module was written, three in the protocol and one in its own checker. Each one is in this lesson as a story, because that is what a VOPR produces: a seed, a configuration, a trace, and an assertion, which together say exactly what went wrong. Module 10 replaces the protocol with a real consensus protocol. The VOPR built here is the tool it is developed under.
+The simulator found four bugs while the module was written, three in the protocol and one in its own checker.
 
 ## Objectives
 
@@ -48,11 +48,11 @@ By the end of this module you can:
   report         the configuration line, the counts, the trace hash
 ```
 
-Every simulator of this kind has this shape. TigerBeetle's `vopr.zig` runs ticks until every request is answered. Then it enters a liveness mode in which faults stop, and runs until the cluster has nothing pending. FoundationDB's simulation runs a workload, then a "quiescence" check. The phases exist because the two properties a run checks need different conditions.
+Every simulator of this kind has this shape. FoundationDB's simulation runs a workload, then a "quiescence" check. The phases exist because the two properties a run checks need different conditions.
 
-Safety is checked everywhere. A wrong answer is a bug whatever the faults were, so the history is recorded through the chaos and checked at the end. Liveness is checked only in the quiet phase. During the chaos a client is allowed to give up, because its primary is allowed to be partitioned away or down. Once the faults stop, nothing excuses an unanswered request. The convergence timeout is the liveness assertion. A cluster that has not settled some seconds after the last fault is stuck, and the report says in what state each replica was stuck.
+Safety is checked everywhere. A wrong answer is a bug whatever the faults were, so the history is recorded through the chaos and checked at the end. As in Module 7, liveness is checked only in the quiet phase. During the chaos a client is allowed to give up, because its primary is allowed to be partitioned away or down. The convergence timeout is the liveness assertion. A cluster that has not settled some seconds after the last fault is stuck, and the report says in what state each replica was stuck.
 
-The chaos phase is measured in requests, not in events or ticks. A run with a slow disk and a flapping network handles many more events per request than a quiet one. A budget in events ends the first before anything happened. The quiet phase is a fixed number of requests too, and every one must complete.
+The chaos phase is measured in requests, not in events or ticks. A run with a slow disk and a flapping network handles many more events per request than a quiet one. A budget in events ends the first before anything happened. The quiet phase is a fixed number of requests too.
 
 ### Everything from the seed
 
@@ -62,7 +62,7 @@ The chaos phase is measured in requests, not in events or ticks. A run with a sl
 seed=1 nodes=3 clients=6 requests=150 quiet=30 seed=14971601782005023387 net=[reliable latency=1ms] disk=[read=746µs..1.669ms write=2.993ms..22.73ms lost=10/1000 torn=5/100 misdirect=1/1000 rot=9/1000 read_fault=3/1000] heartbeat=[interval=100ms suspect_after=350ms] partitions=[every<=1.244s for<=179ms] crashes=[every<=1.759s down<=404ms] pauses=none clocks=none buggify=[enable=50/100 fire=9/100] slow_host=[disk x4] workload=[keys=20 hot=3@89/100 mix=get:4 put:4 delete:2 value<=42 think=25/100@<=187ms]
 ```
 
-The second `seed=` is the world's own, drawn by the swarm and printed as Module 7 prints it. The workload's seed is the last draw and is not printed, because the outer seed fixes it. The line is printed before the run starts. A run that aborts at an assertion has already said what it was. The workload is drawn here because Module 8 left it out of `WorldConfig::swarm` on purpose. The workload is not a fault, and the swarm is the fault families. The run's configuration holds both.
+The second `seed=` is the world's own, drawn by the swarm and printed as Module 7 prints it. The workload's seed is the last draw and is not printed, because the outer seed fixes it. The line is printed before the run starts, so a run that aborts at an assertion has already said what it was. The workload is drawn here because Module 8 left it out of `WorldConfig::swarm` on purpose.
 
 ### The replica
 
@@ -74,9 +74,9 @@ The second `seed=` is the world's own, drawn by the swarm and printed as Module 
                               commit once every disk has it, apply, reply to the client
 ```
 
-`kv_core::replica::Replica` wraps the `Node` of Modules 2 to 8 and owns the `Heartbeat` of Module 5. The node still does what it did. It takes a request, appends a record, and applies the record and answers once the environment reports the append durable. What changed is the meaning of durable. The replica appends the record to its own disk and sends it to every backup as a `Prepare`. A backup appends it at the same offset and answers `PrepareOk` once its disk reports the write durable. The replica feeds the node its `AppendComplete` only once every replica has the record on disk. The node applies and replies. Replication is durability across machines, and the node never learns that anything is different.
+`kv_core::replica::Replica` wraps the `Node` of Modules 2 to 8 and owns the `Heartbeat` of Module 5. The node still applies a record and answers once the environment reports the append durable. What changed is the meaning of durable. The replica appends the record to its own disk and sends it to every backup as a `Prepare`. A backup appends it at the same offset and answers `PrepareOk` once its disk reports the write durable. The replica feeds the node its `AppendComplete` only once every replica has the record on disk.
 
-One replica per view is the primary. The primary of view `v` is node `v mod n`. Only the primary runs a node, and only the primary answers clients. A backup forwards every request it receives to the primary, and the primary replies to the client directly. Clients do not know which replica is the primary and do not need to. Reads are answered by the primary from its map, which holds every committed write and nothing else, so they are linearizable with no further work.
+A view is a number. Each view has one primary, and the primary of view `v` is node `v mod n`. Only the primary runs a node, and only the primary answers clients. A backup forwards every request it receives to the primary, and the primary replies to the client directly. Clients do not know which replica is the primary. Reads are answered by the primary from its map, which holds every committed write and nothing else, so they are linearizable with no further work.
 
 Every beat now carries the sender's view and a summary of its log. The failover rule uses the first. A backup whose failure detector marks the primary `Down` moves to the next view whose primary it believes alive, and says so in its beats. Views only go up. A replica that hears a higher view adopts it at once, and a primary that hears one steps down. The old primary's node is dropped, and with it every write it had not yet committed. The clients retry.
 
@@ -99,17 +99,17 @@ Every committed write is on every disk. That is the commit rule, read backwards.
 
 The logs are prefixes of one another, except for a tail that the next gather removes. A backup accepts record `s` only at the offset where its own log ends. So `World::check_logs` compares every pair of logs byte for byte up to the shorter. Only the newest log, and no other, is ever pushed, so no backup is ever asked to overwrite a committed record.
 
-Together they answer the question of two primaries. There are never two that commit. The new primary commits nothing until every replica reported in its view, and a replica that reported never acknowledges the old primary again. The old primary keeps answering reads until it hears the new view. Those reads are not stale, because nothing newer was committed anywhere.
+Together they mean that no two primaries ever commit. The new primary commits nothing until every replica reported in its view, and a replica that reported never acknowledges the old primary again. The old primary keeps answering reads until it hears the new view. Those reads are not stale, because nothing newer was committed anywhere.
 
 ### What it costs
 
-A write needs every replica. A gather needs every replica. A cluster with one replica down or unreachable commits nothing until it comes back. In the swarm that is most of the chaos phase, and many requests give up. In the quiet phase every replica is up, and the cluster converges.
+A write needs every replica, and so does a gather. A cluster with one replica down or unreachable commits nothing until it comes back. In the swarm that is most of the chaos phase, and many requests give up. In the quiet phase every replica is up, and the cluster converges.
 
-This is the honest price of primary-backup, and it is the whole reason for Module 10. Consensus commits on a majority. Then the longest log is no longer the right log. A replica is allowed to hold a committed record that another replica never saw. The new primary has to be chosen so that it holds every committed record anyway. That is an election. Everything in this module that works because every replica reported is replaced there by something that works because a majority did.
+This price is the reason for Module 10. Consensus commits on a majority. Then the longest log is no longer the right log, because a replica is allowed to hold a committed record that another replica never saw. The new primary has to be chosen so that it holds every committed record anyway, which is an election.
 
 ### Repairing a log
 
-A replica that restarts reads its disk. Module 6 decided what a node does with a hole in the middle of its log: it halts, because serving on top of a missing record answers reads with state that lost an acknowledged write. A cluster of one still halts. A replica with peers need not, because every committed record is on every other disk.
+A Module 6 node that restarts with a hole in the middle of its log halts. A cluster of one still halts. A replica with peers need not, because every committed record is on every other disk.
 
 The first version of the repair reported the prefix before the hole, erased everything after it, and let the primary push the rest. It is wrong, and seed 36 found out how.
 
@@ -126,48 +126,48 @@ A read at twenty seconds returned a value that two acknowledged writes had repla
 
 A lost write is a hole that nobody sees until the next restart. At nineteen lost writes in a thousand and a hundred writes per replica, every replica has a hole somewhere. Each replica's hole is in a different place. Every restart found a hole, erased everything after it, and reported the short prefix. The records after the hole were real, and on that replica's disk, and the only copies left in anyone's memory. Three restarts in a row threw away fourteen committed writes.
 
-The repair now keeps what it finds. Recovery stops at the first hole, and `log::salvage` collects every valid record beyond it. The replica asks every peer for the missing record. The first answer fills the hole, and the replica writes out the records it kept. If the next record is another hole, it asks again. A replica that is repairing reports in its beats the highest record it holds, so a gathering primary knows to wait for it. Only once every peer answered that it does not have the record does the replica erase from the hole on. A record that no peer has was never anywhere else, so it was never acknowledged, and what follows it was prepared on top of it.
+Now recovery stops at the first hole, and `log::salvage` collects every valid record beyond it. The replica asks every peer for the missing record. The first answer fills the hole, and the replica writes out the records it kept. If the next record is another hole, it asks again. A replica that is repairing reports in its beats the highest record it holds, so a gathering primary knows to wait for it. Only once every peer answered that it does not have the record does the replica erase from the hole on. A record that no peer has was never anywhere else, so it was never acknowledged, and what follows it was prepared on top of it.
 
-The erasure is zeros from the hole to the end of everything ever written. Without it a stale record beyond the hole reads back as current after the next restart, whenever a shorter record lands in front of it. A repair must erase what it cannot vouch for.
+The erasure is zeros from the hole to the end of everything ever written. Without it a stale record beyond the hole reads back as current after the next restart, whenever a shorter record lands in front of it.
 
 ### Records carry their view
 
-Seed 402 found the next one. Node 1, primary of view 4, prepared record 96 and crashed before anyone had it. Node 2 became the primary of view 5, gathered on 95 records, and prepared a different record 96. Later node 1 restarted with a hole and salvaged a stray copy of its own record 96 from beyond the hole. It wrote that copy back in place over the right one. Both records were record 96. Nothing in the record said which one the cluster kept.
+Seed 402 found the next one. Node 1, primary of view 4, prepared record 96 and crashed before anyone had it. Node 2 became the primary of view 5, gathered on 95 records, and prepared a different record 96. Later node 1 restarted with a hole and salvaged a stray copy of its own record 96 from beyond the hole. It wrote that copy back in place over the right one. Nothing in either record 96 said which one the cluster kept.
 
-Now the header does. The field Module 6 reserved holds the view the record was prepared in. A log is summed up as runs of views, `[0..30 4..95 5..96]`, and that is what beats carry instead of a length. Two logs are compared by their first disagreement. At the first record on which they differ, the record from the higher view is the one the cluster kept. A record beats no record. A gathering primary adopts the newest log by this order, not the longest. A primary that sees a backup's runs disagree with its own sends `Truncate { at }`, and the backup erases from there and is pushed the rest. That is Raft's log matching property, without Raft's elections, and the reading says where it comes from.
+Now the header does. The field Module 6 reserved holds the view the record was prepared in. A log is summed up as runs of views, `[0..30 4..95 5..96]`, and that is what beats carry instead of a length. Two logs are compared by their first disagreement, where the record from the higher view is the one the cluster kept. A record beats no record. A gathering primary adopts the newest log by this order, not the longest. A primary that sees a backup's runs disagree with its own sends `Truncate { at }`, and the backup erases from there and is pushed the rest. That is Raft's log matching property, without Raft's elections.
 
 A restarted node that finds itself the primary of the view it hears moves to a view of its own, `view + n`. It is allowed to hold records it prepared in the old view before it crashed, and to miss some of them. A new view keeps their numbers from being reused, which is the same reason a Raft term changes on every election.
 
 ### Stragglers
 
-Seed 4668 found the third one, and it is the oldest kind of distributed bug there is. Node 0's beat number 4 said its log had 25 records. Its beat number 3, delayed by the network's reordering, arrived after it and said 24. Node 1 was a primary that had just restarted and was gathering. It took the later arrival for the truth, decided its own 24 records were as long as anyone's, served, and prepared a second record 25.
+Seed 4668 found the third one. Node 0's beat number 4 said its log had 25 records. Its beat number 3, delayed by the network's reordering, arrived after it and said 24. Node 1 was a primary that had just restarted and was gathering. It took the later arrival for the truth, decided its own 24 records were as long as anyone's, served, and prepared a second record 25.
 
-Beats and acknowledgements now carry a boot id and the heartbeat's own sequence number. The environment hands the replica its boot id at start. It is the host's incarnation in the fake world and the wall clock in the real one, so a restart gets a larger one. A replica applies a beat only with a `(boot, seq)` above the last one it applied from that peer. The heartbeat still counts the straggler as a sign of life, which it is. Only the claim about the log is ignored.
+Beats and acknowledgements now carry a boot id and the heartbeat's own sequence number. The environment hands the replica its boot id at start. It is the host's incarnation in the fake world and the wall clock in the real one, so a restart gets a larger one. A replica applies a beat only with a `(boot, seq)` above the last one it applied from that peer. The heartbeat still counts the straggler as a sign of life. Only the claim about the log is ignored.
 
 ### The checker's own bug
 
-Seed 12784 found the fourth, and it was not in the protocol. The white-box check compared the primary's map with its disk. A misdirected write had put a hole in that disk, and the primary had not restarted, so it had not found the hole yet. Its map was right and its disk was wrong, and the check blamed the map. The check now compares the map with the log the replica holds in memory. Only a disk that cannot damage its medium is also compared with that log. A checker that is wrong about what the system must hold is a bug like any other. The seed that found it is a regression test like any other.
+Seed 12784 found the fourth, and it was not in the protocol. The white-box check compared the primary's map with its disk. A misdirected write had put a hole in that disk, and the primary had not restarted, so it had not found the hole yet. Its map was right and its disk was wrong, and the check blamed the map. The check now compares the map with the log the replica holds in memory. Only a disk that cannot damage its medium is also compared with that log.
 
 ### Reading a failing run
 
-The four stories above were read the same way, and the lesson spells it out once:
+The four stories above were read the same way:
 
 1. The seed. `vopr --seed N` reproduces the run bit for bit, in this process and in another.
 2. The configuration line. Which families were on tells you which faults to suspect. Seed 36 had lost writes and crashes. Seed 4668 had reordering. Seed 402 had misdirected writes.
 3. The assertion. A safety failure names the key, prints the operations on it, and says which operation no order explains. A liveness failure prints each replica's status, view and log, and the first record on which two logs disagree.
 4. The trace. `vopr --seed N --trace` prints every line as it is recorded, so a run that aborts has shown everything up to the assertion. Find the operation named by the assertion and the replica that answered it. Walk back through its status lines to the view change or restart that put it in that state.
 
-Every trace line carries true time, the host, and what happened. The lines you want first are `status view=`, `crash`, `restart`, `net partition` and `net heal`. Then the beats, which say what each replica believed about its log.
+The lines you want first are `status view=`, `crash`, `restart`, `net partition` and `net heal`. Then the beats, which say what each replica believed about its log.
 
 ### What the swarm reaches
 
-A protocol that is never driven into its hard paths is not tested there. The acceptance test counts, over forty seeds of one hundred requests each, how often the swarm reached each path. Every seed failed over at least once. A new primary pulled a log it did not have on most seeds. Damaged logs were repaired on a handful. A primary stepped down on a majority of seeds. The counts are printed by `the_swarm_reaches_the_replication_code`, and the lesson does not pin them, because every change to the protocol moves them.
+The acceptance test counts, over forty seeds of one hundred requests each, how often the swarm reached each path. Every seed failed over at least once. A new primary pulled a log it did not have on most seeds. Damaged logs were repaired on a handful. A primary stepped down on a majority of seeds. The counts are printed by `the_swarm_reaches_the_replication_code`, and the lesson does not pin them, because every change to the protocol moves them.
 
 Two hundred seeds run in `scripts/check.sh`. Twenty thousand ran clean before the module was finished, at about a hundred seeds per second in release. The four seeds that found bugs are regression tests, and the test that runs them says what each one found.
 
 ### How TigerBeetle does it
 
-`src/vopr.zig` is the reading, and its main is the shape above with real numbers. The seed either comes from the command line or is drawn fresh. A fresh seed requires a release build, so that a failure found by chance is found at speed. `options_swarm` draws replica and client counts, packet loss, partition mode, read and write fault probabilities, crash and restart probabilities. The run ticks until every request is answered. Then `transition_to_liveness_mode` picks a core of replicas, restarts the core's downed replicas and heals the partitions between them. Everything outside the core stays broken. Then it ticks until `pending()` returns nothing, or fails with "no state convergence". The post on liveness mode, in the readings, says why the core is the trick. A cluster has to make progress while the replicas outside the core never recover. A majority protocol passes that liveness check and the protocol of this module cannot. It is the first test Module 10 adds.
+`src/vopr.zig` is the reading, and its main is the shape above with real numbers. The seed either comes from the command line or is drawn fresh. A fresh seed requires a release build, so that a failure found by chance is found at speed. `options_swarm` draws replica and client counts, packet loss, partition mode, read and write fault probabilities, crash and restart probabilities. The run ticks until every request is answered. Then `transition_to_liveness_mode` picks a core of replicas, restarts the core's downed replicas and heals the partitions between them. Everything outside the core stays broken. Then it ticks until `pending()` returns nothing, or fails with "no state convergence". A cluster has to make progress while the replicas outside the core never recover. A majority protocol passes that liveness check and the protocol of this module cannot. It is the first test Module 10 adds.
 
 ### Decisions recorded
 
@@ -186,7 +186,7 @@ Two hundred seeds run in `scripts/check.sh`. Twenty thousand ran clean before th
 
 Required:
 
-- TigerBeetle: [`src/vopr.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/vopr.zig). Read `main` top to bottom: the seed, `options_swarm`, the request loop, `transition_to_liveness_mode`, the convergence loop, and what is printed on failure. Then read `cluster_recoverable`, which is the liveness assertion naming what is stuck.
+- TigerBeetle: [`src/vopr.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/vopr.zig). Read `main` top to bottom, through to what is printed on failure. Then read `cluster_recoverable`, which is the liveness assertion naming what is stuck.
 - matklad, ["Simulation Testing For Liveness"](https://tigerbeetle.com/blog/2023-07-06-simulation-testing-for-liveness/) (TigerBeetle, 2023). The view-change livelock that a safety-only simulator never saw, and why the liveness mode keeps the replicas outside the core broken.
 - Ongaro and Ousterhout, ["In Search of an Understandable Consensus Algorithm"](https://raft.github.io/raft.pdf) (2014). Only section 5.3 this time. The Log Matching Property, and how a leader brings a follower's log in line with its own. Module 10 reads the rest.
 - Budhiraja, Marzullo, Schneider and Toueg, ["Optimal Primary-Backup Protocols"](https://pages.cs.wisc.edu/~remzi/Classes/739/Fall2015/Papers/92-1265.pdf) (1992). Read the introduction and section 2. The definition of the primary-backup approach, failover, and the bounds on how long a service is without a primary.
@@ -245,7 +245,7 @@ cargo run --release -p vopr -- --seeds 0..2000 | tail -1      # one trace_hash l
 cargo run --release -p vopr -- --seed 36 --trace | tail -5    # the first regression seed, passing
 ```
 
-`check.sh` runs the whole suite and then two hundred seeds. The two thousand seeds take about twenty seconds in release. A seed that fails aborts the sweep at its assertion, with its configuration line above it.
+The two thousand seeds take about twenty seconds in release. A seed that fails aborts the sweep at its assertion, with its configuration line above it.
 
 ### Hints
 
@@ -266,7 +266,7 @@ The node numbers its own operations from one, and a new node starts over. The re
 <details>
 <summary>Building the node from memory</summary>
 
-The node's constructor issues a `Read`. Answer it at once with the log the replica holds, and never send it to the disk. The replica read the disk already, checked it, and repaired it. The node sees a clean log every time.
+The node's constructor issues a `Read`. Answer it at once with the log the replica holds, and never send it to the disk. The replica already read, checked and repaired the disk, so the node sees a clean log every time.
 
 </details>
 
@@ -280,7 +280,7 @@ An append submitted before a truncation completes after it. Its sequence number 
 <details>
 <summary>Comparing runs</summary>
 
-Write `view_at(runs, seq)`. The divergence of two logs is the first sequence number at which it differs. If it never differs, the divergence is one past the longer log. `newer` compares `view_at` at the divergence, with `None` below every view. Test it by hand on three-element lists before you trust it under the swarm.
+Write `view_at(runs, seq)`. The divergence of two logs is the first sequence number at which it differs. If it never differs, the divergence is one past the longer log. `newer` compares `view_at` at the divergence, with `None` below every view.
 
 </details>
 
@@ -301,7 +301,7 @@ Print each peer's runs and durable count next to your own on every beat. The usu
 <details>
 <summary>Finding your fingerprint</summary>
 
-Set the constant to zero and read the hash from the assertion. Then run the binary twice and compare, because the cross-process test is the one that catches a hazard a single process cannot see.
+Find it with the Module 4 method. Then run the binary twice and compare, as the Module 1 cross-process check does.
 
 </details>
 
@@ -344,4 +344,4 @@ Set the constant to zero and read the hash from the assertion. Then run the bina
 
 ## What's next
 
-The simulator is a program now. It has caught three bugs in a protocol that fits in one file, and one in its own checker. The protocol is also the simplest one there is, and it blocks whenever a replica is away. Module 10 replaces it with a consensus protocol, Viewstamped Replication, written against this simulator from the first line. The commit rule becomes a majority, the gather becomes a view change, and the repair becomes a protocol of its own. The VOPR gains TigerBeetle's liveness mode, in which the replicas outside the core can stay broken for the whole chaos phase. The bug journal starts. The target is tens of thousands of seeds clean, with every seed that ever failed kept as a test.
+Module 10 replaces the protocol with Viewstamped Replication, written against this simulator from the first line. The commit rule becomes a majority, the gather becomes a view change, and the repair becomes a protocol of its own. Module 10 adds TigerBeetle's liveness mode and a bug journal, and targets tens of thousands of clean seeds, every failed seed kept as a test.

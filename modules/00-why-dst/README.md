@@ -3,41 +3,29 @@
 ## Why this module exists
 
 At the end of this course you own two things. One is a replicated key-value
-store. A key-value store maps keys to values. A replicated store keeps a copy
-on each of several nodes. The other is a simulator that runs that store for
-simulated years under network and disk faults. It hands you a seed for every
-bug that it finds.
+store. The other is a simulator that runs that store for simulated years
+under network and disk faults. It hands you a seed for every bug that it
+finds.
 
-A seed is one number that fixes every random choice in a run. Before you
-build either tool, you need to feel the problem that they solve. This module
-is the "before" picture.
+This module is the "before" picture. The interesting bugs of a distributed
+system live in timing windows that are microseconds wide. Conventional tests
+either cannot reach these windows, or cannot reach them twice.
 
-Every system has bugs. The problem with distributed systems is where the
-interesting bugs live. They live in timing windows that are microseconds
-wide. They show up once a month in production. They vanish the moment you
-attach a debugger.
-
-Conventional tests either cannot reach these windows, or cannot reach them
-twice. You cannot fix a bug that you cannot reproduce.
-
-In this module you write a small Rust program with a race in it. A race is a
-bug that depends on the order of concurrent steps. You watch the program fail
-some fraction of the time for no visible reason. Then you write down
-everything that you need to control to make one specific failure happen on
-demand. That list is the specification for the next thirteen modules.
+In this module you write a small Rust program with a race in it. You watch
+the program fail some fraction of the time. Then you write down everything
+that you need to control to make one specific failure happen on demand. That
+list is the specification for the next thirteen modules.
 
 ## Objectives
 
 After this module you can:
 
-- Explain, with a concrete example, why distributed systems are hard to test.
-  The reasons are too many interleavings (orders of concurrent steps), rare
-  timing windows, and failures that cannot be reproduced.
+- Explain, with a concrete example, why distributed systems are hard to test:
+  too many interleavings, rare timing windows, and failures that cannot be
+  reproduced.
 - Place unit tests, integration tests, Jepsen-style chaos testing, formal
-  methods, and deterministic simulation testing (DST) on one map. Chaos
-  testing injects faults into a real cluster from outside. Formal methods
-  search a mathematical model of the protocol. Say what each approach finds
-  and what each misses.
+  methods, and deterministic simulation testing (DST) on one map. Say what
+  each approach finds and what each misses.
 - State the three pillars of DST and why the approach fails without any one
   of them. The pillars are determinism (same seed, same run), simulation (the
   whole cluster in one process), and fault injection (a hostile
@@ -53,44 +41,27 @@ After this module you can:
 
 ### Why distributed systems resist testing
 
-A single-threaded program has one execution for a given input. Test it on
-that input and the test is complete. A system with several threads,
-processes, or machines is different. It has one execution per interleaving
-of its concurrent steps. The number of interleavings grows roughly as the
-factorial of the number of steps. Three nodes that exchange ten messages each
-already have more orderings than you can list by hand.
+A concurrent system has one execution per interleaving of its steps. The
+network can delay, reorder, duplicate, or drop any message, and the disk can
+lie about what it wrote. For practical purposes the state space is infinite.
 
-Now add the network, which can delay, reorder, duplicate, or drop any
-message. Add the disk, which can lie about what it wrote. The state space is
-the set of every state that the system can reach. For practical purposes it
-is now infinite.
+Most of that space is boring. The same few orderings happen almost every
+time, because the scheduler, the network stack, and the disk have typical
+behavior. Bugs hide in the atypical orderings.
 
-Most of that space is boring. The scheduler is the part of the OS that picks
-which thread runs. The same few orderings happen almost every time, because
-the scheduler, the network stack, and the disk have typical behavior. Bugs
-hide in the atypical orderings.
-
-A reply arrives after its timeout fired. A leader is the node that
-coordinates the other nodes. The OS pauses a leader for 300 ms in the middle
-of an election. A write reaches the disk cache, but not the platter, before
-the power goes out. Each of these is a rare timing window.
+A reply arrives after its timeout fired. The OS pauses a leader for 300 ms
+in the middle of an election. A write reaches the disk cache, but not the
+platter, before the power goes out. Each of these is a rare timing window.
 
 In production, "rare" times a billion operations a day is daily. In a test
 suite, "rare" times a thousand runs is never.
 
-Suppose that one of these windows fires in production. You get a stack
-trace, a log line or two, and a counter that is off by one. You restart the
-process and the problem is gone. You try to reproduce it on a laptop and
-cannot. The timing that produced it depended on the kernel scheduler, the
-load on the machine, the order of packet delivery, and the clock. None of
-those are inputs that you control.
+Suppose that one of these windows fires in production. The timing that
+produced it depended on the kernel scheduler, the load on the machine, the
+order of packet delivery, and the clock. None of those are inputs that you
+control, so no procedure produces the failure again.
 
-So none of them can be set back to the value that they had during the
-failure. The failure is unreproducible in the literal sense. No procedure
-produces it again.
-
-This is the core difficulty. The bug itself is often not subtle. The inputs
-that trigger it are not inputs that you can set.
+This is the core difficulty. The bug itself is often not subtle.
 
 ### Comparing the testing approaches
 
@@ -99,10 +70,10 @@ the whole of it.
 
 | Approach | What it exercises | Reproducible? | Reaches rare timing windows? | Checks | Main blind spot |
 |---|---|---|---|---|---|
-| Unit tests | One component, one input, one ordering | Yes | No | Hand-written assertions (statements in code that must hold) | Interaction between components. Anything timing-dependent. |
-| Integration tests | Real components wired together, usually the common path | Mostly | Rarely, by accident, as flakes (tests that fail at random) | Hand-written assertions | The rare paths. Flakes are usually ignored instead of investigated. |
-| Jepsen-style chaos testing | A real cluster on real machines. Partitions (network splits), clock skew (clocks that disagree), and process kills injected from outside. | No. A found bug comes with logs, not a replay. | Yes, slowly, and only the windows that the nemesis (the external fault injector) can hit | History-based consistency checking against linearizability (every operation appears instant) and weaker models | Cannot reproduce what it finds. Wall-clock bound, so coverage per hour is low. Disk faults are hard to inject from outside. |
-| Formal methods (TLA+, model checking) | An abstract model of the protocol, by exhaustive or bounded search | Yes | Yes, in the model | Invariants (properties that must hold in every state) and temporal properties | The model is not the code. Implementation bugs, storage bugs, and anything the modeler abstracted away are invisible. |
+| Unit tests | One component, one input, one ordering | Yes | No | Hand-written assertions | Interaction between components. Anything timing-dependent. |
+| Integration tests | Real components wired together, usually the common path | Mostly | Rarely, by accident, as flakes | Hand-written assertions | The rare paths. Flakes are usually ignored instead of investigated. |
+| Jepsen-style chaos testing | A real cluster on real machines. Partitions, clock skew, and process kills injected from outside. | No. A found bug comes with logs, not a replay. | Yes, slowly, and only the windows that the nemesis (the external fault injector) can hit | History-based consistency checking against linearizability (every operation appears instant) and weaker models | Cannot reproduce what it finds. Wall-clock bound, so coverage per hour is low. Disk faults are hard to inject from outside. |
+| Formal methods (TLA+, model checking) | An abstract model of the protocol, by exhaustive or bounded search | Yes | Yes, in the model | Invariants and temporal properties | The model is not the code. Implementation bugs, storage bugs, and anything the modeler abstracted away are invisible. |
 | Deterministic simulation testing | The real code, whole cluster in one process, against a simulated clock, network, and disk, driven by a seed | Yes, exactly, from the seed | Yes. The simulator chooses the timing and runs millions of variations. | Inline assertions, reference models (simple models the system must match), consistency checkers | Only the behaviors you built into the simulator. Cannot test the boundary with systems outside the simulation. |
 
 Two observations about the table follow. First, the "reproducible" and
@@ -121,21 +92,19 @@ DST rests on three properties. Each is necessary.
 
 The first pillar is determinism. Given the same seed, the program makes
 exactly the same sequence of decisions and produces exactly the same output,
-bit for bit. Nondeterminism is any choice that can differ between two runs.
-Every source of nondeterminism is either removed or derived from the seed.
-That includes clock reads, random numbers, thread scheduling, I/O completion
-order, and hash iteration order.
+bit for bit. Every source of nondeterminism is either removed or derived
+from the seed. That includes clock reads, random numbers, thread scheduling,
+I/O completion order, and hash iteration order.
 
 The payoff is that a failing seed is a complete bug report. Run it again and
 the bug happens again, in the same place, with as much logging as you like.
-A fuzzer is a test that feeds random inputs to a program. Without determinism
-you have a fuzzer that fails now and then and cannot tell you why.
+Without determinism you have a fuzzer that fails now and then and cannot
+tell you why.
 
 The second pillar is simulation. The whole cluster, all replicas and all
 clients, runs inside one ordinary process. The clock is a counter that the
 simulator advances. The network is a priority queue of messages keyed by
-delivery time. A priority queue always yields the item with the smallest
-key. The disk is a byte array with a fault model.
+delivery time. The disk is a byte array with a fault model.
 
 Nothing in the simulated system touches the operating system. Simulation is
 what makes determinism achievable, because there is one thread and one
@@ -147,9 +116,8 @@ The simulator delays messages by hours, reorders them, duplicates them, and
 drops them. Partitions form and heal. Processes crash at the worst moment
 and restart with whatever reached the disk. Disk sectors return garbage.
 
-The seed chooses the faults, so they are reproducible too. The happy path is
-the run where nothing fails. Without fault injection you have a fast
-integration test of the happy path.
+The seed chooses the faults, so they are reproducible too. Without fault
+injection you have a fast integration test of the happy path.
 
 Remove determinism and you cannot debug what you find. Remove simulation and
 you cannot run enough variations to find anything. Remove fault injection and
@@ -198,19 +166,16 @@ Here is the shift in one picture:
 
 ### Simulated time is free (mostly)
 
-A discrete-event simulator runs one queued event at a time. In such a
-simulator the clock does not tick. The simulator keeps a queue of future
-events sorted by due time. It pops the earliest event, sets the clock to
-that event's time, and runs it. A heartbeat is a periodic message that says
-a node is alive. Suppose that the next event is a heartbeat timer three
-seconds away.
-
-The clock jumps three seconds, and the cost was one pop from the queue.
-Simulated idle time costs nothing. Only events cost.
+A discrete-event simulator runs one queued event at a time, and its clock
+does not tick. The simulator keeps a queue of future events sorted by due
+time. It pops the earliest event, sets the clock to that event's time, and
+runs it. Suppose that the next event is a heartbeat timer three seconds
+away. The clock jumps three seconds, and the cost was one pop from the
+queue. Simulated idle time costs nothing. Only events cost.
 
 So the question "how many simulated years per wall-clock hour" has no fixed
-answer. Event density is the number of events per simulated second. The
-answer depends on it. Three worked cases follow.
+answer. The answer depends on event density, the number of events per
+simulated second. Three worked cases follow.
 
 The first case is a quiet cluster. Three replicas each send a heartbeat every
 100 ms, and nothing else happens. That is 30 events per simulated second, or
@@ -218,11 +183,11 @@ about 950 million events per simulated year. At one microsecond per event, a
 simulated year costs about 16 minutes. At 100 ns per event, it costs under
 two minutes.
 
-The second case is a retry loop. Exponential backoff doubles the wait after
-each failed try. One client retries against a dead server with exponential
-backoff, capped at one minute. That is roughly half a million events per
-simulated year. A year costs well under a second. Module 4 asks you to build
-exactly this and run it for a simulated year in under a second.
+The second case is a retry loop. One client retries against a dead server
+with exponential backoff, capped at one minute. That is roughly half a
+million events per simulated year. A year costs well under a second. Module
+4 asks you to build exactly this and run it for a simulated year in under a
+second.
 
 The third case is a busy cluster. Joran Greef gave the VOPR's numbers in his
 2023 QCon talk. An average simulation runs about 235,000 ticks of 10 ms
@@ -242,18 +207,17 @@ sixteen. A bug that shows up once per cluster-year in production shows up a
 dozen times in one morning.
 
 The arithmetic points to one control. In the real world you do not choose
-the event density. In the simulator you do. If leader elections under partition are the window
-that you want to explore, you can make the cluster spend a simulated year on
-nothing else.
+the event density. In the simulator you do. If leader elections under
+partition are the window that you want to explore, you can make the cluster
+spend a simulated year on nothing else.
 
 ### Who contributed what
 
 FoundationDB (2010 onward) is the project that worked out this approach. The
 team built a deterministic, event-based network simulator before they wrote
-the database. Then they wrote the database in Flow. Actor-style code is a
-set of tasks that exchange messages. Flow is a C++ extension that compiles
-actor-style code into a single-threaded, deterministic runtime. The same
-runtime runs in production and in simulation.
+the database. Then they wrote the database in Flow. Flow is a C++ extension
+that compiles actor-style code into a single-threaded, deterministic
+runtime. The same runtime runs in production and in simulation.
 
 One random number generator drives everything, and one seed replays
 everything. The team named and refined fault patterns such as "swizzle
@@ -267,27 +231,24 @@ canonical statement of the idea, and the first required reading.
 TigerBeetle's VOPR (2020 onward) took the FoundationDB design and extended
 it in two ways. The first way is the fault model. The VOPR injects network
 and process faults, and also storage faults. Corrupted reads and writes are
-injected at double-digit percentages on every replica. The primary, the
-replica that orders writes, is not exempt. The check is that no committed
-transaction is ever lost.
+injected at double-digit percentages on every replica. The primary is not
+exempt. The check is that no committed transaction is ever lost.
 
-A consensus protocol is the rule by which replicas agree. The storage faults
-forced the consensus protocol itself to become aware of storage faults. That
-idea is Protocol-Aware Recovery, which Module 6 and Module 10 cover.
+The storage faults forced the consensus protocol itself to become aware of
+storage faults. That idea is Protocol-Aware Recovery, which Module 6 and
+Module 10 cover.
 
 The second way is the discipline around the simulator. Tiger Style,
-assertions everywhere, static allocation, and a single-threaded control
-plane (the decision-making code) were all designed from the start. Static
-allocation reserves all memory at startup. The design lets the simulator
-drive the code. The VOPR is also the one that you can watch.
-sim.tigerbeetle.com compiles the actual simulator to WebAssembly and shows a
-cluster that survives three escalating fault levels in your browser.
+assertions everywhere, static allocation of all memory at startup, and a
+single-threaded control plane were all designed from the start. The design
+lets the simulator drive the code. The VOPR is also the one that you can
+watch. sim.tigerbeetle.com compiles the actual simulator to WebAssembly and
+shows a cluster that survives three escalating fault levels in your browser.
 
 Antithesis (2018, public 2024) asked a different question. What about
 software that was not written to be deterministic? FoundationDB and
 TigerBeetle rewrote their systems around determinism. Most codebases cannot.
-A hypervisor is software that runs a whole machine as a guest. Antithesis
-built a hypervisor that emulates a deterministic computer.
+Antithesis built a hypervisor that emulates a deterministic computer.
 
 Any software run inside it becomes replayable, threads and clock reads and
 random-number system calls included. Fault injection and state-space
@@ -303,9 +264,9 @@ the model exhibits, and nowhere else. Three consequences follow.
 First, a wrong or weak fault model finds nothing. A torn write is a write
 stored only in part. Suppose that your simulated disk never produces one.
 Then you never find the torn-write bug, and your simulator reports ten
-thousand clean seeds anyway. A stale reply is a reply that arrives after the
-sender gave up. If your network model never delivers a message after the
-sender's timeout fired, the whole class of "stale reply" bugs is invisible.
+thousand clean seeds anyway. If your network model never delivers a message
+after the sender's timeout fired, the whole class of "stale reply" bugs is
+invisible.
 
 Phil Eaton quotes Will Wilson on this. Wilson calls it "terrifyingly easy to
 build a DST system that appears to be doing a ton of testing". Such a system
@@ -314,11 +275,10 @@ injection) and Module 9 (measuring what the simulator exercises) are about
 this.
 
 Second, weak checks find nothing. The simulator can only report what an
-assertion or a checker notices. A lost update is a write that a concurrent
-write erased. If no invariant mentions a lost update, a lost update is a
-clean run.
+assertion or a checker notices. If no invariant mentions a lost update, a
+lost update is a clean run.
 
-An oracle is the part that decides whether a run was correct. The quality
+The oracle is the part that decides whether a run was correct. The quality
 of a DST setup is the quality of its oracle: inline assertions, a reference
 model, a consistency checker. Module 8 is about this.
 
@@ -435,8 +395,7 @@ The skeleton compiles. It reports `FAIL` because the stubs never increment
 anything. The design that it fixes in place is:
 
 - One `store` thread owns a `Vec<u64>` of counters and receives `Request`s
-  over an `mpsc` channel. Such a channel is a queue with many senders and
-  one receiver. `Get { key }` replies with the current value.
+  over an `mpsc` channel. `Get { key }` replies with the current value.
   `Put { key, value }` stores the value and replies with it.
 - There are `clients` client threads. Each has its own reply channel, which
   it reuses for every request that it sends. Each performs
@@ -920,9 +879,8 @@ fn main() -> ExitCode {
    nondeterminism (scheduler, real network, real clocks) means that a re-run
    can miss the same interleaving forever. You are back to reasoning from
    symptoms. A DST failure gives you a seed that re-creates the exact
-   interleaving on every run. To bisect is to search the history for
-   the first bad commit. You can add logging, bisect commits, and make sure
-   that a fix works by running the seed again.
+   interleaving on every run. You can add logging, bisect commits, and make
+   sure that a fix works by running the seed again.
 
 6. A timeout fired. The client resent the request while the original reply
    was still in flight. It then received the original reply and treated it
@@ -952,10 +910,10 @@ fn main() -> ExitCode {
 You now have a program that fails for reasons that you cannot set. You also
 have a list in `NOTES.md` of exactly which reasons those are. They are the
 scheduler, the clock, the order of channel delivery, and the load on the
-machine. Module 1 turns that list into a catalog. It names every source of nondeterminism that
-a program can have, in general. Module 3 shows where each one hides in Rust. Module 1 introduces the
-seed as the single root from which every decision must descend. Module 1 also has you build the first piece of the course workspace. A PRNG
-is a pseudorandom number generator. A trace log is a record of each step.
-You build a seeded PRNG, a trace log, and a check that runs the same seed
-twice and fails on any divergence. That check runs in CI (the automated
-build on every change) for the rest of the course.
+machine. Module 1 turns that list into a catalog. It names every source of
+nondeterminism that a program can have, in general. Module 3 shows where
+each one hides in Rust. Module 1 introduces the seed as the single root from
+which every decision must descend. Module 1 also has you build the first
+piece of the course workspace. You build a seeded PRNG, a trace log, and a
+check that runs the same seed twice and fails on any divergence. That check
+runs in CI for the rest of the course.

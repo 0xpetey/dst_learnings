@@ -2,11 +2,11 @@
 
 ## Why this module exists
 
-The network in Module 4 was polite. Every message took one millisecond, arrived in order, and was never lost unless a test flipped a flag. Real networks are not like that. Kyle Kingsbury and Peter Bailis collected the public record in "The network is reliable". A switch firmware bug blocks traffic for ninety seconds. A network card drops inbound packets and keeps sending heartbeats, so the hot spare never takes over. A primary loses contact with its two secondaries while every other link stays up. None of these shapes appear in a model where delivery is a constant.
+The Module 4 network delivered every message in order after one millisecond, and lost one only on a test flag. Kyle Kingsbury and Peter Bailis collected the public record of real network failures in "The network is reliable". A switch firmware bug blocks traffic for ninety seconds. A network card drops inbound packets and keeps sending heartbeats, so the hot spare never takes over. A primary loses contact with its two secondaries while every other link stays up. A model with constant delivery has none of these shapes.
 
-The point of simulation testing is an adversarial environment. This module builds the adversary for the network. It is one component that decides the fate of every message: when each copy arrives, or that none does. The seed drives every decision, so a run that finds a bug can be run again.
+This module builds the adversary for the network. It is one component that decides the fate of every message: when each copy arrives, or that none does. The seed drives every decision.
 
-To give the faults something to act on, the world grows from one host to three. Each host sends heartbeats to the others and keeps a view of who is alive. That view is the first distributed state in the course, and it is wrong in instructive ways. A partition looks like a crash. A slow link looks like a crash. A one-way cut makes two nodes disagree about a third. Module 9 builds failover on this view. Module 10 builds consensus on it. The network model does not change again after this module. Module 7 only adds knobs to it.
+To give the faults something to act on, the world grows from one host to three. Each host sends heartbeats to the others and keeps a view of who is alive. That view is the first distributed state in the course. A one-way cut makes two nodes disagree about a third. Module 9 builds failover on this view, and Module 10 builds consensus on it. The network model does not change again after this module. Module 7 only adds knobs to it.
 
 ## Objectives
 
@@ -25,7 +25,7 @@ By the end of this module you can:
 
 ### The network is another priority queue
 
-Module 4 turned every delay into an event with a timestamp. A message is a delay with a destination. The network model therefore owns no queue. It owns a decision:
+A message is a delay with a destination, and the Module 4 scheduler already queues every delay as an event. The network model therefore owns no queue. It owns a decision:
 
 ```text
    world.transmit(from, to, message)
@@ -41,35 +41,35 @@ Module 4 turned every delay into an event with a timestamp. A message is a delay
         └──► Ok((from, to))            hand the message to its destination
 ```
 
-`send` rolls the dice and returns a list of arrival instants. The world schedules one `Deliver` event per instant. When an event fires, the world asks `deliver` whether the copy still arrives. The scheduler remains the only place where time passes.
+The world schedules one `Deliver` event per returned `Delivery`.
 
-The other simulators differ here. TigerBeetle's `PacketSimulator` keeps a queue per path, with a `ready_at` on each packet. Its `step` function walks every path and pops what is due. That fits a tick loop. FoundationDB has no network queue. A simulated connection calls `delay()`, and the delay lands on the main scheduler. `turmoil` keeps an in-flight deque per link and steps it once per tick. The design here follows FoundationDB. One queue means one timeline. The send line in the trace already names the arrival instant of each copy.
+TigerBeetle's `PacketSimulator` keeps a queue per path, with a `ready_at` on each packet. Its `step` function walks every path and pops what is due. That fits a tick loop. FoundationDB has no network queue. A simulated connection calls `delay()`, and the delay lands on the main scheduler. `turmoil` keeps an in-flight deque per link and steps it once per tick. The design here follows FoundationDB, because one queue means one timeline.
 
 ### One address space
 
-The world now has nodes and clients on the same network. `Addr::Node(id)` and `Addr::Client(id)` share one type, and a request, a reply and a heartbeat are all a `Message` from one address to another. The `partitioned` flag and the `drop_replies` list from Module 4 are gone. A test cuts a link or asks the network to lose the next message on it, with the same calls that the seed uses. TigerBeetle's cluster test code makes the same choice. Its `Network` maps each replica and client to a `u8` address, with replicas in the lowest slots.
+Nodes and clients share one network. `Addr::Node(id)` and `Addr::Client(id)` are one type, and a request, a reply and a heartbeat are all a `Message` from one address to another. The `partitioned` flag and the `drop_replies` list from Module 4 are gone. A test cuts a link or asks the network to lose the next message on it, with the same calls that the seed uses. TigerBeetle's cluster test code makes the same choice. Its `Network` maps each replica and client to a `u8` address, with replicas in the lowest slots.
 
 ### The fault model, one fault at a time
 
 | Fault | What it looks like in production | The model |
 |---|---|---|
-| Latency | Queues in switches, route changes | Uniform draw from `latency_min..=latency_max` |
-| Loss | Full buffers, a bad cable, a firewall | Per message, with probability `loss`, no event is scheduled |
-| Duplication | TCP retransmits after a late ack, replayed UDP | Per message, with probability `duplicate`, a second copy with its own latency draw and the same id |
-| Reordering | Two paths through the fabric, a retransmit | Per copy, with probability `reorder`, an extra delay in `0..=reorder_delay_max` |
-| Partition | A cut cable, a misconfigured switch, a dead NIC | A set of cut directed links. A send on a cut link is dropped. A copy in flight at the moment of the cut is dropped too |
+| Latency | Switch queues, route changes | Uniform draw from `latency_min..=latency_max` |
+| Loss | Full buffers, a bad cable | Per message, with probability `loss`, no event is scheduled |
+| Duplication | A retransmit after a late ack | Per message, with probability `duplicate`, a second copy with its own latency draw and the same id |
+| Reordering | Two paths, a retransmit | Per copy, with probability `reorder`, an extra delay in `0..=reorder_delay_max` |
+| Partition | A cut cable, a dead NIC | A set of cut directed links. A send on a cut link is dropped. A copy in flight at the moment of the cut is dropped too |
 
-Each one is a few lines. The whole model is under four hundred, with its documentation. Three of the rows need a comment.
+The whole model is under four hundred lines, with its documentation.
 
-Latency has a distribution, and the shape of the distribution matters less than its tail. TigerBeetle draws from an exponential distribution with a minimum. FoundationDB's `halfLatency` gives one connection in a thousand a slow-tail latency. The model here is uniform, which is the simplest thing with a tail, and the reordering fault supplies a longer one. A stretch goal replaces the draw.
+The shape of the latency distribution matters less than its tail. TigerBeetle draws from an exponential distribution with a minimum. FoundationDB's `halfLatency` gives one connection in a thousand a slow-tail latency. The model here is uniform, which is the simplest thing with a tail, and the reordering fault supplies a longer one.
 
-Reordering is a delay. The Linux `tc netem` manual says it plainly in its limitations section: "For any method of reordering to work, some delay is necessary". If the jitter exceeds the gap between sends, jitter alone reorders messages. An explicit knob gives the model a tail that jitter does not, and lets a test turn it on alone.
+Reordering is a delay. The limitations section of the Linux `tc netem` manual says: "For any method of reordering to work, some delay is necessary". If the jitter exceeds the gap between sends, jitter alone reorders messages. An explicit knob lets a test turn reordering on alone.
 
-In-order delivery is not a knob. It follows from constant latency. If every message on a link takes exactly `d`, the one sent first arrives first. `NetConfig::reliable` sets `latency_min` equal to `latency_max` and every probability to zero. That is the configuration in which the acceptance test demands order and no loss.
+In-order delivery is not a knob. It follows from constant latency. If every message on a link takes exactly `d`, the one sent first arrives first. `NetConfig::reliable` sets `latency_min` equal to `latency_max` and every probability to zero. Under that configuration, the acceptance test demands order and no loss.
 
 ### Partition shapes
 
-A partition in the model is a set of cut directed links. One mechanism covers every shape in the catalogue:
+One mechanism, a set of cut directed links, covers every partition shape:
 
 ```text
    symmetric            asymmetric           partial (bridge)
@@ -78,23 +78,23 @@ A partition in the model is a set of cut directed links. One mechanism covers ev
    n1 ─── n2            n1 ─── n2            (n1 sees everyone)
 ```
 
-`Net::cut(from, to)` cuts one direction. `partition(a, b)` cuts both. `split(side_a, side_b)` cuts every link between two sides. The `Shape` enum names the ones Jepsen found worth testing. Its `nemesis` module has `partition-random-node`, `partition-random-halves` and `bridge`. It also has `partition-majorities-ring`, in which "every node can see a majority, but no node sees the *same* majority as any other". `Shape::OneWay` adds the asymmetric case, which Jepsen builds from a one-directional grudge and Kingsbury's survey records as a dead network card that kept sending heartbeats.
+`Net::cut(from, to)` cuts one direction. `partition(a, b)` cuts both. `split(side_a, side_b)` cuts every link between two sides. The `Shape` enum names the ones Jepsen found worth testing. Jepsen's `nemesis` module has `partition-random-node`, `partition-random-halves` and `bridge`. It also has `partition-majorities-ring`, in which "every node can see a majority, but no node sees the *same* majority as any other". `Shape::OneWay` adds the asymmetric case, which Jepsen builds from a one-directional grudge and Kingsbury's survey records as a dead network card that kept sending heartbeats.
 
 ### Send time or delivery time?
 
-The cable is cut while a message is in flight. Does it arrive? In the model it does not. `send` checks the link at the moment the message leaves. `deliver` checks it again at the moment the copy is due. Either check drops the copy and counts it under `partitioned`. TigerBeetle checks only at delivery time, in `submit_packet_finish`. Checking at both ends costs nothing and keeps the ledger honest, because a message on a cut link is never scheduled at all.
+`send` checks the link at the moment the message leaves. `deliver` checks it again at the moment the copy is due. Either check drops the copy and counts it under `partitioned`. TigerBeetle checks only at delivery time, in `submit_packet_finish`. Checking at both ends costs nothing and keeps the ledger honest, because a message on a cut link is never scheduled at all.
 
-This choice makes the second assertion of the module simple. Partitioned nodes never exchange messages, and the invariant is checked at the moment of delivery, in one place.
+This choice makes one assertion of the module simple. Partitioned nodes never exchange messages, and the invariant is checked at the moment of delivery, in one place.
 
 ### The ledger
 
 The network keeps a map from message id to the endpoints and the number of copies still in flight. `send` inserts. `deliver` decrements and removes at zero. A `deliver` for an id that is not in the map panics with a message that contains `never sent`.
 
-The ledger does not guard against an attacker. It guards against the simulator. A world that clones an event, handles a stale one, or routes a message to the wrong host has a bug. From inside a node, that bug looks exactly like a bug in the system under test. The ledger turns it into a panic at the right place. The acceptance test takes a real delivery event out of one world and drops it into another world's queue. The second world panics. A second test schedules the same copy twice. The second arrival panics.
+The ledger guards against the simulator, not against an attacker. A world that clones an event, handles a stale one, or routes a message to the wrong host has a bug. From inside a node, that bug looks exactly like a bug in the system under test. The ledger turns it into a panic at the right place. One acceptance test moves a real delivery event from one world into another world's queue, and the second world panics. A second test schedules the same copy twice, and the second arrival panics.
 
 ### Heartbeats: the network seen from inside a node
 
-Each host runs a second state machine next to its KV node. `Heartbeat` sends `Beat { seq }` to every peer once per `interval`. It marks a peer `Up` on any beat and `Down` after `suspect_after` of silence. Silence is measured from the last beat heard. Before the first beat, it is measured from the node's start. Like the client, it never reads a clock. Every input carries `now`. The `next_deadline` method tells the world the instant of the next tick. The `sim::Timer` helper from Module 4 keeps the two in step without a change.
+Each host runs a second state machine next to its KV node. `Heartbeat` sends `Beat { seq }` to every peer once per `interval`. It marks a peer `Up` on any beat and `Down` after `suspect_after` of silence. Silence is measured from the last beat heard, or from the node's start before the first beat. Like the client, it never reads a clock, and every input carries `now`. The `next_deadline` method tells the world the instant of the next tick. The Module 4 `sim::Timer` helper keeps one scheduled event in step with that deadline, without a change.
 
 ```text
    n0 ──Beat{1}──► n1      t=0       n1: n0 Unknown ──► Up
@@ -107,15 +107,15 @@ Each host runs a second state machine next to its KV node. `Heartbeat` sends `Be
 
 The receiver counts two things that only a faulty network produces. A beat whose `seq` it has already seen is a duplicate. A beat whose `seq` is below one it has seen is a straggler. Both still count as evidence that the peer is alive. The counters appear in the stats, so a test can show that the network did what the seed asked, from the inside.
 
-Chandra and Toueg named the two properties of a failure detector. Completeness says that a crashed process is eventually suspected. Accuracy says that a correct process is not. This detector is complete and not accurate. A partitioned peer is suspected after `suspect_after`. A peer behind a slow link is suspected too, and that is a false suspicion. A slow message and a dead sender look the same, so perfect accuracy is impossible. The detector does not try. The constraint it does need is `suspect_after > interval`, which the constructor asserts. The acceptance test with heavy duplication and reordering shows the arithmetic. A beat arrives as early as 1 ms after it is sent. The next beat is sent 100 ms later and arrives as late as 205 ms after that, so the longest silence is 304 ms. That is under 350 ms, and no node flaps.
+Chandra and Toueg named the two properties of a failure detector. Completeness says that a crashed process is eventually suspected. Accuracy says that a correct process is not. This detector is complete and not accurate. A peer behind a slow link is suspected like a partitioned one, and that is a false suspicion. A slow message and a dead sender look the same, so perfect accuracy is impossible. The constraint the detector does need is `suspect_after > interval`, which the constructor asserts. In the acceptance test with heavy duplication and reordering, the longest silence is 304 ms. That is under 350 ms, and no node flaps.
 
 A node keeps beating at a peer it suspects. If it stopped, that side never notices a healed partition.
 
 ### Partitions from the seed
 
-Two things in the world come from the seed. `NetConfig::random` draws a latency range, a loss rate, a duplication rate and a reordering rate, in a fixed order. `PartitionSchedule` adds random partitions over time. After each heal, the next partition starts within `gap_max`. It applies a random `Shape` over the hosts and lasts up to `hold_max`. The world heals everything before it applies the next shape, so one shape is in force at a time.
+`NetConfig::random` draws a latency range, a loss rate, a duplication rate and a reordering rate from the seed, in a fixed order. `PartitionSchedule` adds random partitions over time. After each heal, the next partition starts within `gap_max`. It applies a random `Shape` over the hosts and lasts up to `hold_max`. The world heals everything before it applies the next shape, so one shape is in force at a time.
 
-`World::stop_partitions` cancels the schedule and heals every link. The chaos test calls it and sets the network to reliable. Then it runs for one suspicion window plus one beat. Every node must then see every other node `Up`. This is the quiet period. Module 7 turns it into the liveness check that ends every run.
+`World::stop_partitions` cancels the schedule and heals every link. The chaos test in `sim_network.rs` runs a cluster under `NetConfig::random` and a `PartitionSchedule`. It then calls `stop_partitions` and sets the network to reliable. Then it runs for one suspicion window plus one beat. Every node must then see every other node `Up`. Module 7 turns this quiet period into the liveness check that ends every run.
 
 ### Reading a trace
 
@@ -142,7 +142,7 @@ t=200000000ns net dropped n0->n1 beat seq=3 partition
 t=351597868ns n0 peer down n2
 ```
 
-Three things to notice. The first beat from `n0` to `n1` is lost at time zero, and no event exists for it. The reply `m4` is duplicated, and the duplicate lands first, at 7.8 ms, because each copy draws its own latency. The client answers once and ignores the second copy. The last line is a suspicion. `n0` heard `n2` at 1.597868 ms. The beat at 100 ms was lost and the beat at 200 ms hit the cut. 350 ms after the last beat, `n0` gives up on `n2`.
+The first beat from `n0` to `n1` is lost at time zero, and no event exists for it. The reply `m4` is duplicated, and the duplicate lands first, at 7.8 ms, because each copy draws its own latency. The client answers once and ignores the second copy. The last line is a suspicion. `n0` heard `n2` at 1.597868 ms. The beat at 100 ms was lost and the beat at 200 ms hit the cut. 350 ms after the last beat, `n0` gives up on `n2`.
 
 The send line carries the planned arrival of every copy. When a seed fails, the trace says what the network did to each message without a debugger.
 
@@ -155,7 +155,7 @@ The model leaves things out, on purpose.
 - Bytes. The real environment sends frames over TCP. The simulated one sends `Message` values. The frame codec is tested in Module 2 on its own. A simulator that encoded and decoded every message finds codec bugs, and every seed runs slower for it.
 - Clogs. TigerBeetle holds a path for a random duration. `turmoil` holds a link until `release`. Both are a delay applied to a link instead of a message. The reordering fault approximates one, and a stretch goal adds the real thing.
 
-The rule is the one from the syllabus. When a class of bug needs more fidelity, add it. Record what the model does not cover. Module 13 returns to that list.
+When a class of bug needs more fidelity, add it. Record what the model does not cover. Module 13 returns to that list.
 
 ### Decisions recorded
 
@@ -166,13 +166,13 @@ The rule is the one from the syllabus. When a class of bug needs more fidelity, 
 - One trace serves every host. Each driver's observer holds an `Rc<RefCell<Trace>>` and tags its lines with the host id.
 - The heartbeat is a state machine of its own on each host. The KV node does not see it until Module 9.
 - `World::run_until_idle` runs until no client has a request in flight, no request or reply is on the wire, and no append waits for a disk. Heartbeats do not count as work, because they never stop.
-- The `known_seed_fingerprint` hash is `0x2fcf_d1bb_e1bb_c8ef` for seed 1. Trace lines carry host ids and message ids, and the workload runs under random faults. The new `known_cluster_fingerprint` is `0x5dae_82b3_b044_4863`.
+- The `known_seed_fingerprint` hash changed in this module, because trace lines carry host ids and message ids and the workload runs under random faults. It is `0x2fcf_d1bb_e1bb_c8ef` for seed 1. The new `known_cluster_fingerprint` is `0x5dae_82b3_b044_4863`.
 
 ## Readings
 
 Required:
 
-- [Kyle Kingsbury and Peter Bailis, "The network is reliable"](https://aphyr.com/posts/288-the-network-is-reliable). The catalogue of real partitions. Read it for the shapes, and for the network card that kept sending heartbeats.
+- [Kyle Kingsbury and Peter Bailis, "The network is reliable"](https://aphyr.com/posts/288-the-network-is-reliable). Read it for the partition shapes, and for the network card that kept sending heartbeats.
 - TigerBeetle: [`src/testing/packet_simulator.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/packet_simulator.zig). Read `PacketSimulatorOptions`, `PartitionMode`, `submit_packet` and `submit_packet_finish`. Then [`src/testing/cluster/network.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/cluster/network.zig) for `process_to_address` and `transition_to_liveness_mode`.
 - [`turmoil::Sim`](https://docs.rs/turmoil/latest/turmoil/struct.Sim.html), the `partition`, `partition_oneway`, `repair`, `hold` and `release` methods. Then [`turmoil::Builder`](https://docs.rs/turmoil/latest/turmoil/struct.Builder.html) for `min_message_latency`, `max_message_latency` and `fail_rate`. A Rust reference design for the same API.
 - Jepsen: [`jepsen/src/jepsen/nemesis.clj`](https://github.com/jepsen-io/jepsen/blob/main/jepsen/src/jepsen/nemesis.clj). Search for `partition-random-halves`, `partition-random-node`, `bridge` and `majorities-ring`. The docstrings are the catalogue of shapes.
@@ -245,28 +245,21 @@ The last command still prints `two simulated years in` under one second in a rel
 <details>
 <summary>The ledger</summary>
 
-A `BTreeMap<u64, InFlight>` where `InFlight` holds `from`, `to` and a `copies` count. `send` inserts with `copies` equal to the length of the deliveries. `deliver` looks the id up, decrements, and removes the entry at zero. Do the lookup before the cut check, so that a dropped copy still leaves the ledger.
+A `BTreeMap<u64, InFlight>` where `InFlight` holds `from`, `to` and a `copies` count. `send` inserts with `copies` equal to the length of the deliveries. In `deliver`, do the lookup before the cut check, so that a dropped copy still leaves the ledger.
 
 </details>
 
 <details>
 <summary>One trace for several drivers</summary>
 
-The `Driver` owns its observer, and there are now several drivers. Give each `TraceObserver` an `Rc<RefCell<Trace>>` and a `node` field. The world keeps one more clone and exposes it through `trace()` as a `Ref<'_, Trace>`. A `for line in w.trace().lines()` loop works, because the temporary lives for the whole loop. Write a small `log(&self, args: fmt::Arguments)` helper on the world that borrows the cell mutably for one line.
-
-</details>
-
-<details>
-<summary>The borrow checker in <code>pump</code></summary>
-
-The outbox lives inside a host and `transmit` needs `&mut self`. Drain the outbox into a `Vec` first, and read the number of new appends into a local. Then loop over the `Vec` and call `transmit`. The host borrow is over by then.
+Each `Driver` owns its observer. Give each `TraceObserver` an `Rc<RefCell<Trace>>` and a `node` field. The world keeps one more clone and exposes it through `trace()` as a `Ref<'_, Trace>`. A `for line in w.trace().lines()` loop works. Write a small `log(&self, args: fmt::Arguments)` helper on the world that borrows the cell mutably for one line.
 
 </details>
 
 <details>
 <summary>Idle means no client work</summary>
 
-Heartbeats never stop, so "until the queue is empty" never returns in a cluster. Count the scheduled `Deliver` events that carry a request or a reply. Increment the count at scheduling time. Decrement it at firing time, whether or not `deliver` accepts the copy. An idle world has that count at zero, no client with a request in flight, and no host with an append pending.
+Count the scheduled `Deliver` events that carry a request or a reply. Increment the count at scheduling time. Decrement it at firing time, whether or not `deliver` accepts the copy. An idle world has that count at zero, no client with a request in flight, and no host with an append pending.
 
 </details>
 
@@ -280,7 +273,7 @@ The two ledger tests pop events out of `w.scheduler` by hand. The first `Deliver
 <details>
 <summary>Finding your fingerprints</summary>
 
-Set each constant to zero, run the test, and read the hash from the assertion message. Make sure that `seeded_workload_matches_model_and_is_deterministic` and `chaos_is_a_pure_function_of_the_seed` pass first. A fingerprint only means something once the trace is stable.
+Set each constant to zero, run the test, and read the hash from the assertion message. Make sure that `seeded_workload_matches_model_and_is_deterministic` and `chaos_is_a_pure_function_of_the_seed` pass first.
 
 </details>
 
@@ -317,4 +310,4 @@ Set each constant to zero, run the test, and read the hash from the assertion me
 
 ## What's next
 
-The network now lies, loses, repeats and delays, and the heartbeats show what that looks like from inside a node. The disk is still honest. Every append becomes durable after a fixed delay, in order, with every byte intact. Module 6 replaces it with a disk that tears writes, loses them after a successful `fsync`, flips bits and misdirects sectors. The node gets a checksummed log and a recovery procedure, and the world gets crash and restart. The scheduler and the network do not change.
+Module 6 replaces the honest disk with one that tears writes, loses them after a successful `fsync`, flips bits and misdirects sectors. The node gets a checksummed log and a recovery procedure, and the world gets crash and restart.

@@ -2,11 +2,11 @@
 
 ## Why this module exists
 
-The network in Module 5 lies, loses, repeats and delays. The disk was still honest. Every append became durable after a fixed delay, in order, with every byte intact. Real disks are not like that. Bairavasundaram and colleagues watched 1.5 million drives for 41 months. About one nearline drive in a hundred returned data that failed its checksum at least once. Pillai and colleagues found 60 crash vulnerabilities in eleven well-known programs, most from an assumption about the order in which writes reach the disk. Rebello and colleagues showed that after a failed `fsync`, common file systems mark the dirty pages clean. The data is gone and the next `fsync` reports success.
+Until now the simulated disk was honest: every append became durable, in order, with every byte intact. Real disks are not. Bairavasundaram and colleagues watched 1.5 million drives for 41 months. About one nearline drive in a hundred returned data that failed its checksum at least once. Pillai and colleagues found 60 crash vulnerabilities in eleven well-known programs, most from an assumption about the order in which writes reach the disk. Rebello and colleagues showed that after a failed `fsync`, common file systems mark the dirty pages clean. The data is gone and the next `fsync` reports success.
 
-Storage faults differ from network faults in two ways. A lost message is sent again. A lost sector is gone, and the only copy of it is on another machine. When the cable is fixed, the network fault ends. A corrupt sector is still corrupt after every restart. Alagappan and colleagues drew the conclusion in "Protocol-Aware Recovery": a replicated system that treats a corrupt log entry as a missing one loses data, and one that treats it as a crash is unavailable. Module 10 builds the repair. This module builds the disk that makes repair necessary, and the detection that makes it possible.
+Alagappan and colleagues concluded in "Protocol-Aware Recovery": a replicated system that treats a corrupt log entry as a missing one loses data, and one that treats it as a crash is unavailable. Module 10 builds the repair. This module builds the disk that makes repair necessary, and the detection that makes it possible.
 
-The module adds three things. The simulator gets a disk model with sector-level faults. The world learns to kill a process and start a new one over the same disk. The log gets a header with a checksum and a sequence number, and a recovery procedure that tells a torn tail from a hole. The acceptance tests then ask the two questions from the syllabus. Does an acknowledged write survive? Does the node ever serve corruption? The answers are "unless the disk itself lost it" and "never", and the lesson shows exactly where the first answer stops.
+The module adds three things. The simulator gets a disk model with sector-level faults. The world learns to kill a process and start a new one over the same disk. The log gets a header with a checksum and a sequence number, and a recovery procedure that tells a torn tail from a hole. The acceptance tests assert that the node never serves corruption.
 
 ## Objectives
 
@@ -39,25 +39,25 @@ The disk model has the shape of the network model. It decides, and the scheduler
 
 `submit_write` draws a latency and returns the completion instant. The world schedules one `DiskComplete` event for it. When the event fires, `complete_next` pops the oldest operation and decides what became of it. Operations complete in submission order. That is the contract the real `FileStorage` keeps by writing and syncing one append at a time, and the node's offsets depend on it.
 
-The medium is a byte array in whole sectors. A sector is the unit a device writes atomically, so it is the unit the faults act on. A record that spans three sectors can land in one of them and not the others. Nothing in a real disk promises more, and the Pillai paper is a catalogue of programs that assumed more.
+The medium is a byte array in whole sectors. A sector is the unit a device writes atomically, so it is the unit the faults act on. A record that spans three sectors can land in one of them and not the others.
 
-A crash is a method on the disk. The process dies, and the device keeps running. On a reliable disk, every write in flight lands in full, because the kernel and the device finish what they were given. That is a process crash. A power loss is different. The write in flight lands in part, or not at all. The `torn_write` knob is the probability of the second case. FoundationDB's `AsyncFileNonDurable` makes the same split. The comment on its `kill` says that it simulates "a power failure which prevents all written data from being persisted to disk". A killed write lands whole, in part, or not at all.
+A crash is a method on the disk. A process crash leaves the kernel and the device running, so on a reliable disk every write in flight lands in full. In a power loss, the write in flight lands in part, or not at all. The `torn_write` knob is the probability of the second case. FoundationDB's `AsyncFileNonDurable` makes the same split. The comment on its `kill` says that it simulates "a power failure which prevents all written data from being persisted to disk".
 
 ### The fault model, one fault at a time
 
 | Fault | What it looks like in production | When the model rolls it | What the model does |
 |---|---|---|---|
-| Torn write | Power loss in the middle of a multi-sector write | At a crash, per write in flight | A strict prefix of the write's sectors lands. Later writes in flight are lost |
-| Lost write | `fsync` reports success and the page is dropped. A drive cache that lied | At completion, per write | The completion is reported. The bytes never land |
+| Torn write | Power loss during a multi-sector write | At a crash, per write in flight | A strict prefix of the write's sectors lands. Later writes in flight are lost |
+| Lost write | An `fsync` or a drive cache that lied | At completion, per write | The completion is reported. The bytes never land |
 | Misdirected write | Firmware writes the right data to the wrong address | At completion, per write | The whole write lands at another sector-aligned offset |
 | Bit rot | A sector decays on the platter | At completion, per sector written | One bit of the sector is flipped on the medium |
 | Latent sector error | A sector that reads back wrong, this time | At completion, per sector read | One bit of the sector is flipped in the returned copy |
 
-Each row is a few lines. The whole model is about five hundred lines with its documentation. Two rows need a comment.
+Each row is a few lines. The whole model is about five hundred lines with its documentation.
 
-A flipped bit is the smallest corruption there is. A checksum that catches one flipped bit catches anything larger. A test that passes with one flipped bit per sector is the strongest test of the reader. TigerBeetle's simulated storage does the same thing. When a sector is faulty, its `read_sectors` flips one byte of the returned buffer.
+A flipped bit is the smallest corruption there is. A checksum that catches one flipped bit catches anything larger, so one flipped bit per sector is the strongest test of the reader. TigerBeetle's simulated storage does the same thing. When a sector is faulty, its `read_sectors` flips one byte of the returned buffer.
 
-An unreadable sector and a rotten sector look the same to a reader with a checksum. Both fail the check. The model therefore has no `EIO`. A latent sector error is a sector that reads back wrong, and the difference from bit rot is that the next read is clean. The disk remembers which sectors it corrupted on the medium. A test can ask whether the node accepted one of them.
+An unreadable sector and a rotten sector both fail a reader's checksum, so the model has no `EIO`. A latent sector error differs from bit rot in that the next read is clean. The disk remembers which sectors it corrupted on the medium, so a test can ask whether the node accepted one of them.
 
 The rates in `DiskConfig::random` are per mille where the network's are per cent. A disk fault that strikes one write in a hundred ends every run in the first second. One in a thousand lets a run crash and restart a few times. It still produces a halt in about half of the seeds.
 
@@ -65,15 +65,15 @@ The rates in `DiskConfig::random` are per mille where the network's are per cent
 
 Three things are true of a disk and false of a network.
 
-Faults persist. A node that restarts reads the same corrupt sector again. A retry does not help. `a_lost_write_in_the_middle_halts_the_node` restarts the node twice and it halts twice.
+Faults persist. A node that restarts reads the same corrupt sector again. `a_lost_write_in_the_middle_halts_the_node` restarts the node twice and it halts twice.
 
-The fault is in the only copy. When the network loses a request, the client still has it. When the disk loses a record, nobody has it, unless another machine does. That is the whole argument for replication, and it is why Module 10 is the next time this log changes.
+The fault is in the only copy. When the network loses a request, the client still has it. When the disk loses a record, nobody has it, unless another machine does. That is the argument for replication, and it is why Module 10 is the next time this log changes.
 
-Corruption can hit a majority. A partition splits a cluster into sides, and a majority side goes on. Bit rot is independent per disk, and nothing stops it from hitting the same record on two of three replicas. When a replica finds its own log damaged, Protocol-Aware Recovery says how it asks the others. TigerBeetle's simulator adds a `ClusterFaultAtlas` for exactly this reason. Its header says that read and write faults "are distributed between replicas according to ClusterFaultAtlas". The aim, in its words, is that "at least one replica will have a valid copy to help others repair". With one replica, "its WAL can only be corrupted by a crash, never a read/write". The model in this module has no atlas yet, because there is one disk per node and no repair. Module 10 adds one.
+Corruption can hit a majority. A partition leaves a majority side that goes on. Bit rot is independent per disk, and nothing stops it from hitting the same record on two of three replicas. When a replica finds its own log damaged, Protocol-Aware Recovery says how it asks the others. TigerBeetle's simulator adds a `ClusterFaultAtlas` for this reason. Its header says that read and write faults "are distributed between replicas according to ClusterFaultAtlas". The aim, in its words, is that "at least one replica will have a valid copy to help others repair". With one replica, "its WAL can only be corrupted by a crash, never a read/write". The model in this module has no atlas yet, because there is one disk per node and no repair. Module 10 adds one.
 
 ### The log grows a header
 
-Module 2's log format was a length prefix and a tag. It survived a torn tail because a torn tail is a short entry. It cannot survive a flipped bit in a value, because nothing says the value changed. It cannot survive a hole in the middle, because a hole with a plausible length prefix decodes as an entry. The Module 6 format is:
+Module 2's log format, a length prefix and a tag, survives a torn tail. It cannot survive a flipped bit in a value, because nothing says the value changed. It cannot survive a hole in the middle, because a hole with a plausible length prefix decodes as an entry. The Module 6 format is:
 
 ```text
    sector 0        sector 1        sector 2        sector 3
@@ -85,19 +85,17 @@ Module 2's log format was a length prefix and a tag. It survived a torn tail bec
    header, 24 bytes:  magic "KVL1"  len u32  seq u64  crc32c u32  reserved u32
 ```
 
-Every record starts on a sector boundary and is zero padded to a whole number of sectors. The header carries a magic number, the payload length, a sequence number and a CRC-32C. The checksum covers the whole record except itself, padding included, so a flipped bit anywhere in the record fails the check. CRC-32C is the polynomial that iSCSI, ext4 and FoundationDB use. The course writes it out in forty lines, so that no dependency can change what a stored checksum means.
-
-Three fields earn their place.
+Every record starts on a sector boundary and is zero padded to a whole number of sectors. The checksum covers the whole record except itself, padding included, so a flipped bit anywhere in the record fails the check. CRC-32C is the polynomial that iSCSI, ext4 and FoundationDB use. The course writes it out in forty lines, so that no dependency can change what a stored checksum means.
 
 The sequence number says which record belongs at this offset. A write that landed in the wrong place carries the wrong number for its position. A stale record left behind a torn tail carries a number that was already used. Both fail recovery at that offset. TigerBeetle's journal does the same with the `op` in each header, which "helps WAL recovery detect misdirected reads/writes".
 
-The sector alignment lets recovery skip. When a record fails its check, recovery does not know how long it was. It does know that the next record starts on a sector boundary. It probes every boundary after the bad one for a valid header. That probe is the whole difference between a torn tail and a hole.
+The sector alignment lets recovery skip. When a record fails its check, recovery does not know how long it was. It does know that the next record starts on a sector boundary. It probes every boundary after the bad one for a valid header. That probe is the difference between a torn tail and a hole.
 
-The payload carries the client id and the request id. That is the bug the module found. The section "The bug the module found" tells the story.
+The payload carries the client id and the request id, for the reason in "The bug the module found".
 
 ### Recovery: torn or damaged?
 
-Recovery reads records front to back. It accepts each record that has the right magic, a valid checksum, the expected sequence number and a payload that decodes. It stops at the first record that does not, and then asks one more question. Is there a valid record anywhere after it?
+Recovery reads records front to back. It accepts each record that has the right magic, a valid checksum, the expected sequence number and a payload that decodes. It stops at the first record that does not, and looks for a valid record anywhere after it.
 
 | Bytes after the last valid record | Verdict | What happened | What the node does |
 |---|---|---|---|
@@ -106,11 +104,11 @@ Recovery reads records front to back. It accepts each record that has the right 
 | Not a record, and a valid record after | `Damaged` | A record that was once there is missing or broken | Halts with `Output::Halt` |
 | A valid record with the wrong sequence number | `Damaged` | A write landed in the wrong place | Halts |
 
-The reasoning behind `Damaged` is simple. When the crash came, a record that was never acknowledged was in flight. Writes complete in order, so nothing after it was written, and no valid record follows it. If a valid record follows, the broken one completed before it, and the node acknowledged it. Serving on top of the hole answers reads with a state that is missing an acknowledged write. The node refuses. The driver stops stepping on `Output::Halt`, the real server exits with the reason, and the world takes the host down and records `last_halt`.
+The reasoning behind `Damaged` rests on completion order. When the crash came, a record that was never acknowledged was in flight. Writes complete in order, so nothing after it was written, and no valid record follows it. If a valid record follows, the broken one completed before it, and the node acknowledged it. Serving on top of the hole answers reads with a state that is missing an acknowledged write, so the node refuses. The driver stops stepping on `Output::Halt`, the real server exits with the reason, and the world takes the host down and records `last_halt`.
 
-The condition "writes complete in order" is the one that makes this exact. The real `FileStorage` writes and syncs each append before the next, so it holds there. The disk model keeps it at a crash by landing writes in order and losing everything after the first torn one. TigerBeetle's simulator tears each in-flight write independently, and its journal recovery has a sixteen-column decision table and a function named `torn_prepares` to cope. The lesson's version is the one-column table above.
+The disk model keeps completion order at a crash by landing writes in order and losing everything after the first torn one. TigerBeetle's simulator tears each in-flight write independently, and its journal recovery has a sixteen-column decision table and a function named `torn_prepares` to cope. The lesson's version is the one-column table above.
 
-`every_bit_flip_in_the_valid_region_is_caught` in the log tests flips every bit of a three-record log, one at a time, and checks the verdict for each. A flip in records one or two is `Damaged`. A flip in record three is `Torn`. That second verdict is the subject of the next section.
+`every_bit_flip_in_the_valid_region_is_caught` in the log tests flips every bit of a three-record log, one at a time, and checks the verdict for each. A flip in records one or two is `Damaged`. A flip in record three is `Torn`.
 
 ### What a single disk cannot tell you
 
@@ -120,27 +118,25 @@ Three faults produce a log that recovery accepts. In each case an acknowledged w
 - A rotten last record. One bit of the last record flipped. The bytes are not a record and nothing follows. The log is `Torn`, which is also what a crash during that append produces.
 - A read fault on the last record. Same bytes, same verdict, but the next read is clean.
 
-The third case produces the strangest trace in the module. Seed 14 of `storage_chaos_is_a_pure_function_of_the_seed` has a node acknowledge a write, restart, serve the old value for that key, restart again, and serve the new one. The record was there the whole time. The first read flipped a bit in it, so recovery took it for a torn tail. The node had no memory of how long its log was. The oracle in that test treats a lost write as a write of unknown fate. It does not treat it as gone, because it comes back.
+Seed 14 of `storage_chaos_is_a_pure_function_of_the_seed` shows the third case. A node acknowledges a write, restarts, serves the old value for that key, restarts again, and serves the new one. The record was there the whole time. The first read flipped a bit in it, so recovery took it for a torn tail. The oracle in that test treats a lost write as a write of unknown fate. It does not treat it as gone, because it comes back.
 
 The root cause is the same in all three. The node's only record of what it acknowledged is the log, and the log is what was damaged. Three things fix it, and the course adds them in order.
 
 1. A replica. Module 10's node asks its peers what the last record was. If a peer has record 4, the local record 4 was lost and not torn. This is the recovery in the Protocol-Aware Recovery paper. TigerBeetle's documentation says that only corruption on every replica in the cluster loses a record.
-2. Redundant headers. TigerBeetle writes every prepare's header a second time, into a ring of headers in a separate zone, after the prepare is durable. A valid header for a corrupt prepare says the prepare was once there. Its journal comments walk through why the second write comes after the first.
-3. A superblock. A small, checksummed record of how far the log reached, written separately. With one, a `Clean` log that ends early is damage. Without one, it is an empty log. The stretch goals ask for this one.
+2. Redundant headers. TigerBeetle writes every prepare's header a second time, into a ring of headers in a separate zone, after the prepare is durable. A valid header for a corrupt prepare says the prepare was once there.
+3. A superblock. A small, checksummed record of how far the log reached, written separately. With one, a `Clean` log that ends early is damage. Without one, it is an empty log.
 
 Until then the lesson's rule is honest. On one disk, a tail that reads back wrong is a torn tail. The acceptance tests count the acknowledged writes this loses and print the count. They assert that the count is zero on every disk that cannot lose a write.
 
 ### Crash and restart in the world
 
-A `Host` is now a `Disk` and an `Option<Process>`. The process is the KV node behind its driver and the heartbeat. `World::crash` takes the process, calls `disk.crash`, and cancels the host's heartbeat timer. `World::restart` builds a new process, which issues a `Read` and recovers from whatever the disk returns. There is no other path from the old process to the new one. Everything the old node knew is gone.
-
-Three details keep the world honest about that.
+A `Host` is now a `Disk` and an `Option<Process>`. The process is the KV node behind its driver and the heartbeat. `World::crash` takes the process, calls `disk.crash`, and cancels the host's heartbeat timer. `World::restart` builds a new process, which issues a `Read` and recovers from whatever the disk returns. There is no other path from the old process to the new one.
 
 Each start increments the host's `incarnation`, and every `DiskComplete` event carries the incarnation that submitted it. A completion that fires for a dead process is stale. The crash already settled that operation, and the world counts the event and drops it.
 
-A message delivered to a down host goes nowhere. The network did its job, so it is not a network drop. The trace line is `n0 down, dropped request client=1 id=3`, and the client retries after its timeout. From the client's side a crashed node and a partitioned node look the same, which is the point of the earlier module.
+A message delivered to a down host goes nowhere. The network did its job, so it is not a network drop. The trace line is `n0 down, dropped request client=1 id=3`, and the client retries after its timeout. From the client's side a crashed node and a partitioned node look the same.
 
-The new process's heartbeat counts beats from one. Its peers have seen higher numbers, so the first beats after a restart count as stragglers. `a_crash_looks_like_a_partition_from_the_outside` asserts on that counter. It is evidence of a restart that the protocol can see, and a stretch goal turns it into an incarnation number in the beat.
+The new process's heartbeat counts beats from one. Its peers have seen higher numbers, so the first beats after a restart count as stragglers. `a_crash_looks_like_a_partition_from_the_outside` asserts on that counter. It is evidence of a restart that the protocol can see.
 
 A `CrashSchedule` does what the `PartitionSchedule` does. After a gap the seed picks a host that is up and kills it. After a down time it restarts the host and schedules the next crash. `World::stop_crashes` cancels the schedule and brings every down host up, including one that halted over damage. That host reads its disk again. If the damage was a read fault, it comes back. If the damage is on the medium, it halts again, and the quiet period's liveness check skips it on purpose.
 
@@ -178,15 +174,15 @@ t=115ms    n0 disk write op=1 offset=512 sectors=2 at=t=120ms
 t=121ms    client=1 done id=3 PutOk
 ```
 
-Four things to notice. The write at 13 ms is marked `lost` by the disk and `PutOk` by the node, in the same instant. The node told the truth as it knew it. The crash at 16 ms tears the two-sector write in flight, and one sector of it lands. The restart reads 1536 bytes: record 1, a sector of zeros where record 2 belongs, and half of record 3. Recovery accepts record 1, finds zeros, probes sector 2, finds half a record that fails its checksum, and reports a torn tail. The retry at 115 ms lands at offset 512, on top of the hole. Key `b` was acknowledged and is gone, and no line in the trace after the restart says so. The one at 13 ms does. That is what the trace is for.
+The write at 13 ms is marked `lost` by the disk and `PutOk` by the node, in the same instant. The crash at 16 ms tears the two-sector write in flight, and one sector of it lands. The restart reads 1536 bytes: record 1, a sector of zeros where record 2 belongs, and half of record 3. Recovery accepts record 1, finds zeros, probes sector 2, finds half a record that fails its checksum, and reports a torn tail. The retry at 115 ms lands at offset 512, on top of the hole. Key `b`, the write acknowledged at 13 ms, is gone, and no line in the trace after the restart says so. The one at 13 ms does.
 
 ### How the other simulators do it
 
-TigerBeetle's `Storage` in `src/testing/storage.zig` has the same knobs under other names. `read_fault_probability` and `write_fault_probability` mark a sector faulty, and a faulty sector reads back with one byte changed. `crash_fault_probability` faults a sector of each pending write at a crash. `write_misdirect_probability` moves a whole write to another offset in the same zone. The comments limit it to one per storage, "because double-faults are not covered by our fault model". Its reads of a sector that was never written return random bytes, where the model here returns zeros. Its latencies are exponential with a minimum, where the model here is uniform.
+TigerBeetle's `Storage` in `src/testing/storage.zig` has the same knobs under other names. `read_fault_probability` and `write_fault_probability` mark a sector faulty. `crash_fault_probability` faults a sector of each pending write at a crash. `write_misdirect_probability` moves a whole write to another offset in the same zone. The comments limit it to one per storage, "because double-faults are not covered by our fault model". Its reads of a sector that was never written return random bytes, where the model here returns zeros. Its latencies are exponential with a minimum, where the model here is uniform.
 
-Two things in TigerBeetle's model have no counterpart here yet. The fault atlas from the earlier section decides which sectors each replica's faults are allowed to hit, so that a cluster can repair. The zones give each kind of data its own tolerance. The superblock permits one fault per area. The write-ahead log permits faults by the atlas, and the grid of data blocks permits faults only with three or more replicas. Module 10 needs the first. Module 13 returns to the second.
+Two things in TigerBeetle's model have no counterpart here yet. The fault atlas decides which sectors each replica's faults are allowed to hit. The zones give each kind of data its own tolerance. The superblock permits one fault per area. The write-ahead log permits faults by the atlas, and the grid of data blocks permits faults only with three or more replicas. Module 13 returns to the zones.
 
-FoundationDB's `AsyncFileNonDurable` wraps a real file. Writes wait a random time before they reach the file, and a kill in that window applies one of three `KillMode`s drawn at open: no corruption, dropped writes only, or full corruption of the sectors that were being written. There is no persistent fault model. A sector that was written correctly stays correct. FoundationDB's storage faults are crash faults.
+FoundationDB's `AsyncFileNonDurable` wraps a real file. Writes wait a random time before they reach the file, and a kill in that window applies one of three `KillMode`s drawn at open: no corruption, dropped writes only, or full corruption of the sectors that were being written. There is no persistent fault model. A sector that was written correctly stays correct.
 
 ### Decisions recorded
 
@@ -205,9 +201,9 @@ FoundationDB's `AsyncFileNonDurable` wraps a real file. Writes wait a random tim
 
 Required:
 
-- [Alagappan et al., "Protocol-Aware Recovery for Consensus-Based Storage" (FAST '18)](https://www.usenix.org/conference/fast18/presentation/alagappan). Read sections 2 and 3 for the storage fault taxonomy. They say why a corrupt log entry is neither a missing one nor a crash. The paper behind TigerBeetle's storage model.
+- [Alagappan et al., "Protocol-Aware Recovery for Consensus-Based Storage" (FAST '18)](https://www.usenix.org/conference/fast18/presentation/alagappan). Read sections 2 and 3 for the storage fault taxonomy. The paper behind TigerBeetle's storage model.
 - [Pillai et al., "All File Systems Are Not Created Equal" (OSDI '14)](https://www.usenix.org/conference/osdi14/technical-sessions/presentation/pillai). Read the persistence properties in section 3 and the vulnerability table. Every row is a write that landed in a different order, or in part.
-- [Dan Luu, "Files are hard"](https://danluu.com/file-consistency/). A short tour of the two papers above and the Bairavasundaram study. If the papers are heavy going, read it first.
+- [Dan Luu, "Files are hard"](https://danluu.com/file-consistency/). A short tour of the two papers above and the Bairavasundaram study.
 - TigerBeetle: [`src/testing/storage.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/testing/storage.zig). Read the header comment, `Options`, `reset` and the comment above `overlays`. `ClusterFaultAtlas` lives in this file. `src/testing/cluster.zig` imports it as `StorageFaultAtlas`.
 - TigerBeetle: [`src/vsr/journal.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/main/src/vsr/journal.zig). Search for "Recovery decision table" and for `torn_prepares`. Read the comment on `headers_redundant` for why the header is written twice.
 
@@ -295,7 +291,7 @@ Write one probe function. It examines the bytes at an offset and returns short, 
 <details>
 <summary>Who owns the disk</summary>
 
-The driver owns its storage, and the driver dies with the process. Keep the medium out of the driver. `FakeStorage` is a pair of queues. The `Disk` lives in the `Host` next to the `Option<Process>`. The world moves operations from one to the other in `pump`, the way it moves replies to the network.
+The driver owns its storage, and the driver dies with the process. Keep the medium out of the driver. The world moves operations from `FakeStorage` to the host's `Disk` in `pump`, the way it moves replies to the network.
 
 </details>
 
@@ -309,7 +305,7 @@ Count the sectors a write touches from its first sector to the sector that holds
 <details>
 <summary>A new client after a restart</summary>
 
-Reuse of a client id is a trap. A test that builds a second world over an old disk and adds client 1 again sees every request ignored. The node rebuilt client 1's session from the log, and the new client's ids start below it. Use a new client id. The reference tests use 2 or 9 and say why.
+In a second world over an old disk, use a new client id. The reference tests use 2 or 9.
 
 </details>
 
@@ -323,7 +319,7 @@ Keep one list per node. It holds the writes the client issued, in order, with a 
 <details>
 <summary>Finding your fingerprints</summary>
 
-Set each constant to zero, run the test, and read the hash from the assertion message. Make sure that the three determinism tests pass first.
+Set each constant to zero and read the hash from the assertion message, after the three determinism tests pass.
 
 </details>
 
@@ -363,4 +359,4 @@ Set each constant to zero, run the test, and read the hash from the assertion me
 
 ## What's next
 
-The simulator now has every component that touches the outside world: a clock, a network, a disk and a process that can die. The network, the disk and the process each have a fault model, and each fault is a probability drawn from the seed. The clock gets its own in Module 7. Module 7 is about turning the probabilities into a search. It adds the faults that live inside a process: pauses and clock jumps. It adds the `buggify!` macro, which lets the store itself misbehave at points the author chooses. Then it adds swarm testing, where each seed picks which faults to enable, so that no single configuration dominates the search. The disk model does not change again. Module 10 adds the fault atlas on top of it.
+Module 7 turns the fault probabilities into a search. It adds the faults inside a process (pauses and clock jumps), the `buggify!` macro, and swarm testing, where each seed picks which faults to enable. The disk model does not change again.

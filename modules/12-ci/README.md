@@ -2,11 +2,9 @@
 
 ## Why this module exists
 
-Every tool of Module 11 starts from a seed that someone ran. The hunt that found seed 9916 took five minutes of a laptop's attention, and nobody gives that attention twice a day for long. The simulator finds bugs in proportion to the seeds it runs, so the running has to be automatic. A batch on every push. A sweep every night, for as long as the night allows. A failure that arrives in the morning as a file: the seed, the commit, the command line, the trace, and a shrunk run, checked twice.
+The simulator finds bugs in proportion to the seeds it runs, so the running has to be automatic. This module builds a batch on every push and a sweep every night, for as long as the night allows.
 
-Three things have to be right for that file to mean anything. The seeds have to follow the commit, so that a verdict is reproducible and the pushes add up to coverage. A failure must never be retried into a pass, because a failure that goes away on a rerun is a second bug, not a flake. And the binary CI ran has to be the binary an engineer builds at home. That takes a pinned toolchain, a committed lockfile and one profile.
-
-The fourth thing is cost. A simulator that runs ninety seeds a second is worth running every night. One that slows down by three times finds a third of the bugs in the same night. Nobody notices, and the nightly is quietly useless. This module puts a ceiling on the simulator's own cost, in units that the machine does not choose.
+The module also puts a ceiling on the simulator's own cost, in units that the machine does not choose. A simulator that slows down by three times finds a third of the bugs in the same night, and nobody notices.
 
 ## Objectives
 
@@ -20,41 +18,39 @@ The fourth thing is cost. A simulator that runs ninety seeds a second is worth r
 
 ### Two kinds of test
 
-The suite has two kinds of test, and CI needs both. The first kind is the regression suite: the acceptance tests of eleven modules, the ten regression seeds of Module 10, and the planted bugs of Modules 8 to 11. It asks whether what was true is still true, and it has to run on every push. The second kind is exploration: seeds that nobody has run before. A seed that passed once is worth nothing the second time, because the run is the same run. New seeds find new bugs, and only new seeds do.
+CI needs two kinds of test. The first kind is the regression suite: the acceptance tests of eleven modules, the ten regression seeds of Module 10, and the planted bugs of Modules 8 to 11. It has to run on every push. The second kind is exploration: seeds that nobody has run before. A seed that passed once is worth nothing the second time, because the run is the same run.
 
-TigerBeetle's advice on fuzzers in CI is the same idea in two sentences. Each CI run is kept as quick as possible, and the total fuzzing time racks up over many runs. The smoke run uses one fixed seed and asks only whether the fuzzer runs at all. The random seed is drawn outside the test process and passed in on the command line, so that a crash cannot lose it. This module does both. The regression suite is `scripts/check.sh`, as in every module since Module 3. The exploration is the batch.
+TigerBeetle gives the same advice on fuzzers in CI. Each CI run is kept as quick as possible, and the total fuzzing time racks up over many runs. The smoke run uses one fixed seed and asks only whether the fuzzer runs at all. The random seed is drawn outside the test process and passed in on the command line, so that a crash cannot lose it. The regression suite is `scripts/check.sh`, as in every module since Module 3. The exploration is the batch.
 
 ### The seeds follow the commit
 
-`vopr --batch 500 --commit SHA` runs five hundred seeds, and the first of them is the number spelled by the first twelve hex digits of the commit hash. The same commit therefore always runs the same seeds, and the next commit runs others. The first property makes a verdict reproducible. An engineer who sees a red build runs the same batch at home and sees the same seed fail. The second property is coverage. Every push explores five hundred seeds that no push explored before, and a year of pushes is a hunt that nobody had to start.
+`vopr --batch 500 --commit SHA` runs five hundred seeds, and the first of them is the number spelled by the first twelve hex digits of the commit hash. The same commit therefore always runs the same seeds, so an engineer reproduces a red build at home. The next commit runs others, so every push explores five hundred new seeds.
 
 TigerBeetle's orchestrator draws a random seed for every run and records it with the commit. FoundationDB's TestHarness2 does the same. Random seeds are fine on one condition: every seed is written down. The hash does the writing down here. The batch's summary and every record carry the commit too, so nothing depends on a log line surviving.
 
-The regression seeds are the other end of the scale. Seed 36, seed 562 and the rest are run on every push, forever, under the overrides of the day they were found. They live in the tests, not in the batch, because the batch moves on.
+The regression seeds, seed 36, seed 562 and the rest, are run on every push, forever, under the overrides of the day they were found. They live in the tests, not in the batch, because the batch moves on.
 
 ### Flake-free by construction
 
-The usual CI flake has a familiar shape. A test that passes on a rerun. A port that was in use, a timer that fired late on a loaded runner, two tests that shared a file. Teams answer with a retry button, and the retry button teaches everyone that red means "try again".
+A simulated run has none of the usual sources of a CI flake: no port, no wall clock and no shared file. A seed that fails has exactly two explanations. The system has a bug, or the binary is not a function of its seed. Both are findings, and the second is the Module 1 check failing in production. So the batch never retries a failure to see whether it goes away. It runs the failing seed twice more, with the trace echoed. The signature has to match the first run on both reruns, and the two reruns have to print the same thing, line for line. When they agree, the record carries the trace hash and the batch says `failed`. When they disagree, the record says `unstable` and what the rerun said instead, and the batch fails for that reason.
 
-None of those causes exists in a simulated run. There is no port, no wall clock and no shared file. A seed that fails has exactly two explanations. The system has a bug, or the binary is not a function of its seed. Both are findings, and the second is the Module 1 check failing in production. So the batch never retries a failure to see whether it goes away. It runs the failing seed twice more, with the trace echoed, and demands agreement three times over. The signature has to match the first run on both reruns, and the two reruns have to print the same thing, line for line. When they agree, the record carries the trace hash and the batch says `failed`. When they disagree, the record says `unstable` and what the rerun said instead, and the batch fails for that reason. A failure that passes on a rerun is reported as a failure that passes on a rerun. That is the finding.
-
-FoundationDB's TestHarness2 runs its determinism check on five per cent of runs, chosen at random, and keeps both traces for a script to compare. The batch here checks only the failures. A passing run's hash is folded into the sweep hash, and the next section compares that across machines.
+FoundationDB's TestHarness2 runs its determinism check on five per cent of runs, chosen at random, and keeps both traces for a script to compare. The batch here checks only the failures. A passing run's hash is folded into the sweep hash, which the batch workflow compares across machines.
 
 ### The same binary
 
-Module 11 said that a bug report is a seed, a commit hash and a command line. The three name one run on one condition: the binary is the same. This module says what "the same" takes.
+Module 11's bug report names one run on one condition: the binary is the same.
 
-The source is the commit, and the record carries its hash. The toolchain is pinned in `rust-toolchain.toml` to one version, and `rustup toolchain install` in the workflow reads that file and installs that version. The dependencies are pinned in `Cargo.lock`, which is committed, and every cargo command in `scripts/check.sh` and the workflows now carries `--locked`. With that flag, cargo builds from the lockfile or fails. It never resolves a dependency anew, so the build that CI ran is the build in the commit. The features are fixed by the crate graph: the `vopr` crate asks for `buggify` and `bugs`, and cargo unifies them. And the profile is one profile. Since Module 3 the workspace keeps overflow checks and debug assertions on in both the dev and the release profile. That is what lets a seed cross between them. The tests run in debug and the batch runs in release, and `scripts/check.sh` now proves on seed 1 that both print one trace hash.
+The source is the commit, and the record carries its hash. The toolchain is pinned in `rust-toolchain.toml` to one version, and `rustup toolchain install` in the workflow installs that version. The dependencies are pinned in the committed `Cargo.lock`, and every cargo command in `scripts/check.sh` and the workflows now carries `--locked`. The build that CI ran is therefore the build in the commit. The features are fixed by the crate graph: the `vopr` crate asks for `buggify` and `bugs`, and cargo unifies them. And the profile is one profile. Module 3 kept overflow checks and debug assertions on in dev and release, so a seed crosses between them. The tests run in debug and the batch runs in release, and `scripts/check.sh` now proves on seed 1 that both print one trace hash.
 
 What does not go into "the same binary" is the machine. The batch workflow runs on an Ubuntu runner, which is x86-64, and on a macOS runner, which is arm64. A third job downloads both reports and compares the sweep hashes. One line of difference is a Module 3 hazard that the lints did not catch: a pointer width in a trace line, a float, an unordered map. None is there, and the comparison is what says so.
 
-Note what is not claimed. The trace is the same on both machines. The bytes of the binary are not, and the course does not need them to be. Reproducible builds, bit for bit, are a stronger property with their own discipline. Zig promises it for release builds, and TigerBeetle's release validation compares the SHA-256 of a downloaded release with one built locally. Rust makes no such promise, and the trace is the contract here.
+The bytes of the binary differ between the two machines, and the course does not need them to match. Reproducible builds, bit for bit, are a stronger property. Zig promises it for release builds, and TigerBeetle's release validation compares the SHA-256 of a downloaded release with one built locally. Rust makes no such promise, and the trace is the contract here.
 
 ### The batch
 
-`vopr::batch` is Module 11's hunt grown up. The hunt ran one child at a time and stopped at nothing. The batch runs `jobs` children at a time and verifies every failure. It shrinks the failure on request, checks the cost of every pass, and writes a report directory at the end. Its exit status is the verdict: non-zero for a failure, for a run that disagreed with itself, and for a run over the cost ceiling.
+Module 11's hunt ran one child at a time and stopped at nothing. `vopr::batch` runs `jobs` children at a time and verifies every failure. It shrinks the failure on request, checks the cost of every pass, and writes a report directory at the end. Its exit status is the verdict: non-zero for a failure, for a run that disagreed with itself, and for a run over the cost ceiling.
 
-The runs happen through a `Runner`, as the shrinker's happen through an `Oracle`. `Children` spawns `vopr --seed N <overrides>` with its stdout and stderr piped, `jobs` at a time, and reads the results back in seed order. There are no threads in the pool, because the workspace bans them. The pool spawns up to `jobs` children, waits on the oldest, pushes its result and spawns the next. A slow seed at the head of the queue holds the others for a moment, and the numbers below say what that costs. `InProcess` calls `vopr::run` under `catch_unwind` for the tests. A failure's output in-process is its message, because the world is gone by the time the panic is caught.
+The runs happen through a `Runner`, as the shrinker's happen through an `Oracle`. `Children` spawns `vopr --seed N <overrides>` with its stdout and stderr piped, `jobs` at a time, and reads the results back in seed order. There are no threads in the pool, because the workspace bans them. The pool spawns up to `jobs` children, waits on the oldest, pushes its result and spawns the next. A slow seed at the head of the queue holds the others for a moment. `InProcess` calls `vopr::run` under `catch_unwind` for the tests. A failure's output in-process is its message, because the world is gone by the time the panic is caught.
 
 A pass is read out of the child's stdout. The `trace_hash=` line gives the hash, the `cost:` line gives the scheduler events and the request count, and the `check:` line gives the checker's steps. A failure is a non-zero exit, and its message is cut out of stderr as Module 11 cut it. The pass's hash goes into the sweep hash with the same fold that `vopr --seeds` uses, so `vopr --seeds 0..200` and `vopr --batch 200 --from 0` print one number.
 
@@ -96,13 +92,13 @@ failure:
   node 0 view 21: told to truncate record 17, committed through 17
 ```
 
-`Record::parse` reads the file back, and the tests prove the round trip. The trace file is the failing run as the child printed it, six thousand lines up to the assertion. `vopr --inspect seed-9916.trace` reads it with no binary to run. The whole of Module 11's reading of seed 9916 can be done from the artifact, on a laptop, against a build that no longer exists. That is what the record is for.
+`Record::parse` reads the file back, and the tests prove the round trip. The trace file is the failing run as the child printed it, six thousand lines up to the assertion. `vopr --inspect seed-9916.trace` reads it with no binary to run. The whole of Module 11's reading of seed 9916 can be done from the artifact, against a build that no longer exists.
 
 ### The ceiling
 
-The simulator's speed is a budget. At ninety seeds a second per core, twenty thousand seeds are four minutes. A nightly of fifty minutes on four cores is about half a million seeds. A change that makes every run three times as expensive cuts that to a sixth, and nothing turns red. The bug the nightly misses is not attributed to the slowdown, because nobody knows about the slowdown.
+At ninety seeds a second per core, twenty thousand seeds are four minutes. A nightly of fifty minutes on four cores is about half a million seeds. A change that makes every run three times as expensive cuts that to a sixth, and nothing turns red.
 
-Wall-clock time is the wrong assertion. Module 4 decided that the one-year test prints its speed and asserts on nothing. A loaded CI runner makes any wall-clock assertion flaky, and this module just said that flakes are forbidden. The right assertion is in the seed's units. A run's cost is the scheduler events it fired and the checker's steps. The first is how much the cluster did, and the second is how hard the oracle worked. Both are functions of the seed. A run that costs more than a ceiling allows is a regression on every machine, loaded or not. The same seed shows it to everyone.
+Wall-clock time is the wrong assertion. Module 4 decided that the one-year test prints its speed and asserts on nothing. A loaded CI runner makes any wall-clock assertion flaky. The right assertion is in the seed's units. A run's cost is the scheduler events it fired and the checker's steps. The first is how much the cluster did, and the second is how hard the oracle worked. Both are functions of the seed. A run that costs more than a ceiling allows is a regression on every machine, loaded or not.
 
 The ceilings come from measurement. Twenty thousand seeds, in release, at eight jobs:
 
@@ -112,13 +108,12 @@ The ceilings come from measurement. Twenty thousand seeds, in release, at eight 
 | Checker steps | 216 | 5 994 | 358 481, at seed 4888 |
 | Wall time per seed | 20 ms | 90 ms | 290 ms |
 
-The default ceilings are 1 000 events per request and 800 000 checker steps, about twice the maximum each. A heartbeat that fires ten times too often, a retry storm, or a checker with a broken cache goes over on hundreds of seeds. The long tail is real, though. The maximum is twenty times the median in events, and a thousand times the median in steps. A ceiling at twice the median catches nothing but noise. Wall time is printed in the batch's summary for a human to read. The summary names the dearest seed by each measure, so a slow seed has a name.
+The default ceilings are 1 000 events per request and 800 000 checker steps, about twice the maximum each. A heartbeat that fires ten times too often, a retry storm, or a checker with a broken cache goes over on hundreds of seeds. The tail is long, though. The maximum is twenty times the median in events, and a thousand times the median in steps. A ceiling at twice the median catches nothing but noise. Wall time is printed in the batch's summary for a human to read. The summary names the dearest seed by each measure, so a slow seed has a name.
 
-TigerBeetle's devhub takes the other road. On every merge to `main`, a script builds in debug and in release and records the build times and the binary's size. It runs a benchmark and appends one JSON line to a file in a git repository. A page graphs the lines, and a change-point service looks for steps. The ceiling here is the cheap version of that: one number, deterministic, and no graph. The stretch goals add the file and the graph.
-
+TigerBeetle's devhub takes the other road. On every merge to `main`, a script builds in debug and in release and records the build times and the binary's size. It runs a benchmark and appends one JSON line to a file in a git repository. A page graphs the lines, and a change-point service looks for steps. The ceiling here is the cheap version of that: one number, deterministic, and no graph.
 ### The fleet
 
-The nightly workflow is a fleet of one. Every night it builds the commit at the head of `main` and runs `vopr --batch` with a budget of fifty minutes. The seeds start at the run number times a million, so no two nights overlap and the seeds of any night follow from its number. Every failure is verified and shrunk, and the report is uploaded as an artifact that GitHub keeps for ninety days. A failing seed is a file to download in the morning.
+The nightly workflow is a fleet of one. Every night it builds the commit at the head of `main` and runs `vopr --batch` with a budget of fifty minutes. The seeds start at the run number times a million, so no two nights overlap and the seeds of any night follow from its number. Every failure is verified and shrunk, and the report is uploaded as an artifact that GitHub keeps for ninety days.
 
 TigerBeetle's orchestrator shows what a real fleet adds. It keeps as many fuzzers running as the machine has cores, in a loop with a budget of sixty minutes. At the end of the budget a supervisor refreshes the code and starts the loop again. A fuzzer that runs past a timeout of thirty minutes is killed and counted as a failure. The targets are the tip of `main`, the release branch, and every open pull request with a label that starts with `fuzz`. The targets are weighted, so a label gets its fuzzer's attention for a while. Every run is a record: the commit, the fuzzer, the seed, the verdict, the start and end times, and the exact command. The records are merged into a JSON file in a second git repository every five minutes. The merge keeps failing seeds ahead of passing ones, at most thirty-two commits, and four seeds per commit and fuzzer. The devhub page shows each failure as a command line to paste. The orchestrator left the main repository in August 2026, and the devhub went behind a login. The readings link the last version in the tree.
 
@@ -128,7 +123,7 @@ Both fleets have three parts that the nightly here does not: more than one machi
 
 ### The workflows
 
-Three files under `.github/workflows/`. GitHub reads them only at the root of a repository, so a workspace that lives in a subdirectory needs `defaults: { run: { working-directory: project } }` under each job. The course repository cannot run them for you. Push the workspace to a fork of your own and watch the three of them go.
+Three files under `.github/workflows/`. GitHub reads them only at the root of a repository, so a workspace that lives in a subdirectory needs `defaults: { run: { working-directory: project } }` under each job. The course repository cannot run them, so push the workspace to a fork of your own.
 
 `check.yml` is the regression suite. One job, one script, and it is the script you run at home.
 
@@ -188,7 +183,7 @@ jobs:
           test "$(grep -h '^sweep_hash=' batch-*/summary.txt | sort -u | wc -l)" -eq 1
 ```
 
-`nightly.yml` is the fleet of one. The `workflow_dispatch` trigger lets you start it by hand, which is how you test it. GitHub runs a `run` step under bash with `pipefail` on. The `tail` at the end of the pipe therefore does not hide the batch's exit status.
+`nightly.yml` is the fleet of one. GitHub runs a `run` step under bash with `pipefail` on. The `tail` at the end of the pipe therefore does not hide the batch's exit status.
 
 ```yaml
 name: nightly
@@ -221,7 +216,7 @@ jobs:
 
 ### The one wall clock
 
-The batch's budget is wall-clock time on purpose. It bounds the machine's time, and no run reads it. The workspace bans `std::time::Instant` by lint, so the batch wraps it in `batch::Stopwatch`. The wrapper is marked with `#[expect]` and a reason, as the real environment marks its clock. A `grep` for the lint's name now lists every place the program touches a clock, and the batch is one of them. That is the Module 3 discipline, kept.
+The batch's budget is wall-clock time on purpose. It bounds the machine's time, and no run reads it. The workspace bans `std::time::Instant` by lint, so the batch wraps it in `batch::Stopwatch`. The wrapper is marked with `#[expect]` and a reason, as the real environment marks its clock. A `grep` for the lint's name now lists every place the program touches a clock, and the batch is one of them.
 
 ### Decisions recorded
 
@@ -236,8 +231,8 @@ The batch's budget is wall-clock time on purpose. It bounds the machine's time, 
 
 Required:
 
-- TigerBeetle, [`src/scripts/cfo.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/e544c610/src/scripts/cfo.zig), the continuous fuzzing orchestrator, at the last commit before it left the tree. Read the doc comment at the top, then `Fuzzer`, the loop that keeps `concurrency` fuzzers running, and the merge rules for `data.json`. That is a fleet in one file.
-- TigerBeetle, ["A Tale of Four Fuzzers"](https://tigerbeetle.com/blog/2025-11-28-tale-of-four-fuzzers/) (2025). The closing advice on seeds. A fixed seed for the smoke run, and a random seed drawn outside the process for coverage. A short CI run that adds up over many runs.
+- TigerBeetle, [`src/scripts/cfo.zig`](https://github.com/tigerbeetle/tigerbeetle/blob/e544c610/src/scripts/cfo.zig), the continuous fuzzing orchestrator, at the last commit before it left the tree. Read the doc comment at the top, then `Fuzzer`, the loop that keeps `concurrency` fuzzers running, and the merge rules for `data.json`.
+- TigerBeetle, ["A Tale of Four Fuzzers"](https://tigerbeetle.com/blog/2025-11-28-tale-of-four-fuzzers/) (2025). The closing advice on seeds, and on short CI runs that add up.
 - FoundationDB, [Joshua](https://github.com/FoundationDB/fdb-joshua), the README. Ensembles, agents, exit codes, and `tail --errors`. Then [TestHarness2](https://github.com/apple/foundationdb/tree/main/contrib/TestHarness2), the README's sections on seeds and on the determinism check.
 - The Cargo Book, ["Cargo.toml vs Cargo.lock"](https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html), the guide page. Then `--locked`, under "Manifest Options" on [any command's page](https://doc.rust-lang.org/cargo/commands/cargo-test.html), for the flag. Why the lockfile is committed, and why CI refuses to resolve.
 - The rustup book, ["Overrides"](https://rust-lang.github.io/rustup/overrides.html). What `rust-toolchain.toml` does and in what order the overrides apply.
@@ -284,7 +279,7 @@ Start from your Module 11 workspace with `dst start 12`. If you did not finish M
 #### The binary and the scripts
 
 11. `vopr --batch COUNT [--from N] [--commit SHA] [--jobs J] [--for D] [--shrink] [--report DIR] [--max-events N] [--max-steps N] [overrides]`. The seeds start at `--from`, or where the commit's hash says. The commit is recorded either way. A batch that names neither is a usage error. The progress lines and the exit status are as the lesson shows.
-12. `scripts/check.sh` carries `--locked` on every cargo command and compares seed 1's hash in debug and release. After the shrink it runs the same two hundred seeds as a batch at four jobs, and the two hashes have to be equal.
+12. `scripts/check.sh` carries `--locked` on every cargo command and compares seed 1's hash in debug and release. After the shrink it runs the sweep's two hundred seeds as a batch at four jobs. The sweep's hash and the batch's sweep hash have to be equal.
 13. The three workflows of the lesson, under `.github/workflows/`.
 14. The one wall clock is `batch::Stopwatch`, and clippy stays at `-D warnings`.
 15. The fingerprints do not change. Seed 1 of `RunConfig::from_seed(1, 150)` is still `0xcc45_30a4_8c93_496b`.
@@ -308,21 +303,21 @@ From the repository root, `mise run sweep` runs the same twenty thousand seeds a
 <details>
 <summary>A pool without threads</summary>
 
-Keep a queue of `(seed, Child, Stopwatch)`. Spawn until the queue holds `jobs` children or the seeds run out. Then pop the front and `wait_with_output` on it, push its result, and go round again. The results come out in seed order with no sorting. A child whose stdout is piped and never read blocks once the pipe is full. Read every child to the end, and never leave one in the queue.
+Keep a queue of `(seed, Child, Stopwatch)`. Spawn until the queue holds `jobs` children or the seeds run out. Then pop the front and `wait_with_output` on it, push its result, and go round again. The results come out in seed order with no sorting. A full pipe blocks the child, so read every child to the end and never leave one in the queue.
 
 </details>
 
 <details>
 <summary>The child's stdout</summary>
 
-Run `vopr --seed 1` by hand and read the lines. The hash is the last line. The cost is the `cost:` line, and the checker's steps are on the `check:` line. A small `field(line, "steps=")` helper that finds a token by its prefix is enough. With `--trace`, the configuration line comes first and the trace after it, and the whole of stdout is what you hash.
+Run `vopr --seed 1` by hand and read the lines. The hash is the last line. A small `field(line, "steps=")` helper that finds a token by its prefix is enough. With `--trace`, the configuration line comes first and the trace after it, and the whole of stdout is what you hash.
 
 </details>
 
 <details>
 <summary>The seeds from the hash</summary>
 
-`u64::from_str_radix(&hex[..12], 16)`. Twelve hex digits are forty-eight bits, so the start is below `2^48` and `start + count` cannot overflow a `u64`.
+Twelve hex digits are forty-eight bits. The start is therefore below `2^48`, and `start + count` cannot overflow a `u64`.
 
 </details>
 
@@ -343,7 +338,7 @@ The shrinker takes an `Oracle`. A `Runner` is one, through an adapter that runs 
 <details>
 <summary>The workflows</summary>
 
-`rustup toolchain install` with no argument installs what `rust-toolchain.toml` names. The matrix's macOS runner is arm64, so the `agree` job compares two architectures, not two installs of one. `actions/download-artifact@v4` with a `pattern` puts each artifact in a directory of its own name.
+`actions/download-artifact@v4` with a `pattern` puts each artifact in a directory of its own name.
 
 </details>
 
@@ -384,4 +379,4 @@ The shrinker takes an `Oracle`. A `Runner` is one, through an adapter that runs 
 
 ## What's next
 
-The simulator now runs itself, and the course has built everything it set out to build: a replicated store under consensus, the simulator that tortures it, the tools that read a failure, and the machinery that runs the seeds every night. Module 13 steps back. It ports the Module 10 replica onto an existing Rust framework and compares the two. Then it asks what this simulator does not model. The gap between the fake disk and a real one, the bugs in the compiler and the kernel, and the regressions no trace hash sees. The retrospective there is the course's written deliverable.
+Module 13 ports the Module 10 replica onto an existing Rust framework and compares the two. Then it asks what this simulator does not model: the gap between the fake disk and a real one, compiler and kernel bugs, and regressions no trace hash sees. The retrospective there is the course's written deliverable.
